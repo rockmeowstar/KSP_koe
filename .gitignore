@@ -1,0 +1,7 @@
+/dist/
+/artifacts/package38-build/
+*.obj
+*.pdb
+*.ilk
+*.exp
+*.lib

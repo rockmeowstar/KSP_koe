@@ -1,0 +1,11 @@
+using System.Reflection;
+using UnityEngine;
+[KSPAddon(KSPAddon.Startup.Instantly, true)]
+public sealed class KoeModuleBootstrap : MonoBehaviour
+{
+    public void Awake()
+    {
+        KerbalOverEngineering.Options.ModuleLoader.Start(Assembly.GetExecutingAssembly());
+        Destroy(gameObject);
+    }
+}
