@@ -1,4 +1,4 @@
-KOE original source and installer - MIT
+KOE original source - MIT
 Options and hardware probe - MIT
 CraftLinkFix - MIT
 DatabaseSchedulerFix - MIT
@@ -9,6 +9,7 @@ ExpansionBufferFix - MIT
 FrameGeneration - MIT (MinHook/HDE: BSD-2-Clause; NVIDIA interface headers: MIT)
 InstancedPointLights original integration source - MIT
 InstancedPointLights Deferred-derived shaders and combined plugin binary - GPL-3.0
+Deferred upstream corresponding source - GPL-3.0
 LoadingScreenFix - MIT
 NativeTextureFix - MIT (MinHook/HDE: BSD-2-Clause)
 PngPipelineFix - MIT

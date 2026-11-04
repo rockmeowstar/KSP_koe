@@ -1,0 +1,116 @@
+ps_4_0
+dcl_constantbuffer cb13[4096], dynamicIndexed
+dcl_sampler s0, mode_default
+dcl_sampler s1, mode_default
+dcl_sampler s2, mode_default
+dcl_sampler s3, mode_default
+dcl_sampler s4, mode_default
+dcl_resource_texture2d (float,float,float,float) t0
+dcl_resource_texture2d (float,float,float,float) t1
+dcl_resource_texture2d (float,float,float,float) t2
+dcl_resource_texture2d (float,float,float,float) t3
+dcl_resource_texture2d (float,float,float,float) t4
+dcl_input_ps linear v1.xyw
+dcl_input_ps linear v2.xyz
+dcl_input_ps constant v3.x
+dcl_output o0.xyzw
+dcl_temps 7
+ishl r6.x, v3.x, l(7)
+div r0.x, cb13[r6.x + 45].z, v2.z
+mul r0.xyz, r0.xxxx, v2.xyzx
+div r1.xy, v1.xyxx, v1.wwww
+sample r2.xyzw, r1.xyxx, t0.xyzw, s0
+mad r0.w, cb13[r6.x + 47].x, r2.x, cb13[r6.x + 47].y
+div r0.w, l(1.000000, 1.000000, 1.000000, 1.000000), r0.w
+mul r0.xyz, r0.wwww, r0.xyzx
+mul r2.xyz, r0.yyyy, cb13[r6.x + 67].xyzx
+mad r0.xyw, cb13[r6.x + 66].xyxz, r0.xxxx, r2.xyxz
+mad r0.xyz, cb13[r6.x + 68].xyzx, r0.zzzz, r0.xywx
+add r0.xyz, r0.xyzx, cb13[r6.x + 69].xyzx
+add r2.xyz, r0.xyzx, -cb13[r6.x + 44].xyzx
+add r0.xyz, r0.xyzx, -cb13[r6.x + 38].xyzx
+dp3 r0.w, r2.xyzx, r2.xyzx
+rsq r0.w, r0.w
+mul r2.xyz, r0.wwww, r2.xyzx
+dp3 r0.w, r0.xyzx, r0.xyzx
+rsq r1.z, r0.w
+mul r0.w, r0.w, cb13[r6.x + 38].w
+sample r3.xyzw, r0.wwww, t1.xyzw, s1
+mul r3.xyz, r3.xxxx, cb13[r6.x + 39].xyzx
+mad r4.xyz, -r0.xyzx, r1.zzzz, -r2.xyzx
+mul r0.xyz, r0.xyzx, r1.zzzz
+dp3 r0.w, r4.xyzx, r4.xyzx
+max r0.w, r0.w, l(0.001000)
+rsq r0.w, r0.w
+mul r4.xyz, r0.wwww, r4.xyzx
+sample r5.xyzw, r1.xyxx, t4.xyzw, s4
+mad r5.xyz, r5.xyzx, l(2.000000, 2.000000, 2.000000, 0.000000), l(-1.000000, -1.000000, -1.000000, 0.000000)
+dp3 r0.w, r5.xyzx, r5.xyzx
+rsq r0.w, r0.w
+mul r5.xyz, r0.wwww, r5.xyzx
+dp3_sat r0.w, r5.xyzx, r4.xyzx
+dp3_sat r1.z, -r0.xyzx, r4.xyzx
+dp3_sat r0.x, r5.xyzx, -r0.xyzx
+dp3 r0.y, r5.xyzx, -r2.xyzx
+sample r2.xyzw, r1.xyxx, t3.xyzw, s3
+sample r4.xyzw, r1.xyxx, t2.xyzw, s2
+add r5.xyzw, -r2.wxyz, l(1.000000, 1.000000, 1.000000, 1.000000)
+mul r0.z, r5.x, r5.x
+max r0.z, r0.z, l(0.002000)
+mul r1.x, r0.z, r0.z
+mad r1.y, r0.w, r1.x, -r0.w
+mad r0.w, r1.y, r0.w, l(1.000000)
+mad r0.w, r0.w, r0.w, l(1.000000012E-007)
+mul r1.x, r1.x, l(0.318309873)
+div r0.w, r1.x, r0.w
+add r1.x, -r0.z, l(1.000000)
+mad r1.y, |r0.y|, r1.x, r0.z
+mad r0.z, r0.x, r1.x, r0.z
+mul r0.z, r0.z, |r0.y|
+add r0.y, -|r0.y|, l(1.000000)
+mad r0.z, r0.x, r1.y, r0.z
+add r0.z, r0.z, l(0.000010)
+div r0.z, l(0.500000), r0.z
+mul r0.z, r0.w, r0.z
+mul r0.z, r0.z, l(3.14159274)
+max r0.z, r0.z, l(0.000100)
+sqrt r0.z, r0.z
+mul r0.z, r0.x, r0.z
+dp3 r0.w, r2.xyzx, r2.xyzx
+ne r0.w, r0.w, l(0.000000)
+and r0.w, r0.w, l(0x3f800000)
+mul r0.z, r0.w, r0.z
+mul r1.xyw, r3.xyxz, r0.zzzz
+add r0.z, -r1.z, l(1.000000)
+mul r0.w, r0.z, r0.z
+mul r0.w, r0.w, r0.w
+mul r0.z, r0.z, r0.w
+mad r2.xyz, r5.yzwy, r0.zzzz, r2.xyzx
+mul r1.xyw, r1.xyxw, r2.xyxz
+mul r0.z, r0.y, r0.y
+mul r0.z, r0.z, r0.z
+mul r0.y, r0.y, r0.z
+add r0.z, r1.z, r1.z
+mul r0.z, r1.z, r0.z
+mad r0.z, r0.z, r5.x, l(-0.500000)
+mad r0.y, r0.z, r0.y, l(1.000000)
+add r0.w, -r0.x, l(1.000000)
+mul r1.z, r0.w, r0.w
+mul r1.z, r1.z, r1.z
+mul r0.w, r0.w, r1.z
+mad r0.z, r0.z, r0.w, l(1.000000)
+mul r0.y, r0.y, r0.z
+mul r0.x, r0.x, r0.y
+mul r0.xyz, r0.xxxx, r3.xyzx
+mad r0.xyz, r4.xyzx, r0.xyzx, r1.xywx
+lt r1.xyz, r0.xyzx, l(0.000000, 0.000000, 0.000000, 0.000000)
+lt r2.xyz, l(0.000000, 0.000000, 0.000000, 0.000000), r0.xyzx
+or r1.xyz, r1.xyzx, r2.xyzx
+eq r2.xyz, r0.xyzx, l(0.000000, 0.000000, 0.000000, 0.000000)
+or r1.xyz, r1.xyzx, r2.xyzx
+ieq r1.xyz, r1.xyzx, l(0, 0, 0, 0)
+or r1.x, r1.y, r1.x
+or r1.x, r1.z, r1.x
+mov r0.w, l(1.000000)
+movc o0.xyzw, r1.xxxx, l(0,0,0,0), r0.xyzw
+ret

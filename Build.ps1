@@ -49,7 +49,6 @@ $taskNativeFiles=@{
  Lights=@(@('KSP_x64_Data/Plugins/KoeInstancedLights.dll','78f5ea8fd67cacfa5dd75241a542b5c4a3d71e581eb604333532cce17170193b'),@('GameData/KerbalOverEngineeringExperiments/InstancedLights/light0-ps.shdr','52f0befe1d3fa291a4bebef94502ef14c162f4a3d86cd579a87da9664249bef7'),@('GameData/KerbalOverEngineeringExperiments/InstancedLights/light0-vs.shdr','18f304a7ebaf6499cde707116f7cda855078b930ae59b750ed6b5b8a0c46e496'),@('GameData/KerbalOverEngineeringExperiments/InstancedLights/light1-ps.shdr','bddc54bcdf16b256e3fdc3eabf6ea7675717597293d40bbfc2deb397878e81c8'),@('GameData/KerbalOverEngineeringExperiments/InstancedLights/light1-vs.shdr','18f304a7ebaf6499cde707116f7cda855078b930ae59b750ed6b5b8a0c46e496'))
  Frame=,@('KSP_x64_Data/Plugins/KoeFrameGeneration.dll','e2d9ab5265e19de95e410b0c1a67e8261df6dead8601cea9ff3a71e869dc96a5')
 }
-$taskInstallerResources=@()
 foreach($taskModule in $taskModules){
  $taskName=$taskModule.Name
  $taskDirectory=Join-Path $taskBuild $taskName
@@ -82,25 +81,8 @@ foreach($taskModule in $taskModules){
  New-Item -ItemType Directory -Force (Split-Path $taskOutput) | Out-Null
  & $taskCsc @taskReferences "/out:$taskOutput" "/resource:$taskPayload,module.bin" "/resource:$taskInfo,module.info" $taskWrapper
  if($LASTEXITCODE -ne 0){throw "Wrapper build failed: $taskName"}
- $taskInstallerResources+="/resource:$taskOutput,package.$($taskModule.Path.Replace('/','.')).Plugins.$taskName.dll"
 }
-Copy-Item -LiteralPath "$taskRoot\KerbalOverEngineering.version" -Destination $taskPackage
-Copy-Item -LiteralPath "$taskRoot\third_party\minhook\LICENSE.txt" -Destination "$taskPackage\MinHook-LICENSE.txt"
 Copy-Item -LiteralPath "$taskRoot\LICENSE","$taskRoot\LICENSES.md" -Destination $taskPackage
-New-Item -ItemType Directory -Force "$taskPackage\licenses","$taskPackage\source" | Out-Null
-Copy-Item -Path "$taskRoot\licenses\*" -Destination "$taskPackage\licenses" -Force
-Copy-Item -LiteralPath "$taskRoot\artifacts\InstancedPointLights-corresponding-source.zip" -Destination "$taskPackage\source" -Force
-$taskManifest=Get-ChildItem -LiteralPath $taskPackage -File -Recurse | ForEach-Object { $_.FullName.Substring($taskPackage.Length+1).Replace('\','/') }
-[IO.File]::WriteAllLines("$taskBuild\package.manifest",$taskManifest,[Text.UTF8Encoding]::new($false))
-$taskInstallerResources+="/resource:$taskCore,package.Plugins.KerbalOverEngineering.Options.dll"
-$taskInstallerResources+="/resource:$taskPackage\KerbalOverEngineering.version,package.KerbalOverEngineering.version"
-$taskInstallerResources+="/resource:$taskPackage\MinHook-LICENSE.txt,package.MinHook-LICENSE.txt"
-$taskInstallerResources+="/resource:$taskPackage\LICENSE,package.LICENSE"
-$taskInstallerResources+="/resource:$taskPackage\LICENSES.md,package.LICENSES.md"
-foreach($taskFile in Get-ChildItem -LiteralPath "$taskPackage\licenses","$taskPackage\source" -File -Recurse){
- $taskRelative=$taskFile.FullName.Substring($taskPackage.Length+1).Replace('\','.')
- $taskInstallerResources+="/resource:$($taskFile.FullName),package.$taskRelative"
-}
-& $taskCsc /nologo /optimize+ /target:exe "/out:$taskRoot\dist\KerbalOverEngineering.exe" @taskInstallerResources "/resource:$taskBuild\package.manifest,package.manifest" "$taskRoot\installer\Installer.cs"
-if($LASTEXITCODE -ne 0){throw 'Optional installer build failed'}
-Write-Output 'BUILD_PASS: core + 19 optional payload wrappers; native binaries retain accepted identities; config generated at runtime'
+Copy-Item -LiteralPath "$taskRoot\licenses" -Destination $taskPackage -Recurse
+Compress-Archive -LiteralPath "$taskRoot\dist\GameData" -DestinationPath "$taskRoot\dist\KerbalOverEngineering-0.15.0.zip" -CompressionLevel Optimal -Force
+Write-Output 'BUILD_PASS: core + 19 modules; GameData ZIP; no installer'
