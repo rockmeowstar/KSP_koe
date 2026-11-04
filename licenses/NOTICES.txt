@@ -22,6 +22,12 @@ The mod checks the
 actual adapter/API and enables the option when supported. It does not accept a
 driver EULA for the user, install a driver or change driver settings.
 
+Running Windows KSP through Wine/Proton is experimental. The runtime is detected
+through Wine's ntdll export and each native feature retains its capability checks.
+NVIDIA identity alone does not enable frame generation: the D3D11 Optical Flow
+API and the required D3D11 interfaces must actually be available. Unavailable
+features remain disabled. Native Linux KSP is not covered by this Windows path.
+
 Official references:
 - https://docs.nvidia.com/video-technologies/optical-flow-sdk/read-me/index.html
 - https://docs.nvidia.com/video-technologies/optical-flow-sdk/license/index.html
@@ -46,8 +52,8 @@ shader assets and the plugin binary containing them are supplied with GPL-3.0
 redistribution conditions. The KOE-authored source remains MIT-compatible and
 is included in the release source archive.
 
-Complete corresponding source is available alongside the binary download:
-https://github.com/rockmeowstar/ksp_koe/releases/tag/0.15.0
+Complete corresponding source is available in the matching release tag through
+GitHub's source archives. Project: https://github.com/rockmeowstar/ksp_koe
 The source archive contains modified shader assembly, signature/reflection inputs,
 generation/build scripts, native/managed integration source and functional upstream
 Deferred 1.3.3.0 source files. Documentation and editor caches have been removed.

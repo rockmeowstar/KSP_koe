@@ -3,9 +3,11 @@ $ErrorActionPreference='Stop'
 $taskRoot=Split-Path (Split-Path $PSScriptRoot)
 if(!$OutputPath){$OutputPath=Join-Path $taskRoot 'artifacts\native-texture-production\NativeTextureEncoder.bin'}
 $OutputPath=[IO.Path]::GetFullPath($OutputPath)
-$taskCompiler='C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231'
-$taskSdk='C:\Program Files (x86)\Windows Kits\10'
-$taskSdkVersion='10.0.26100.0'
+. "$taskRoot\core\BuildTools.ps1"
+$taskTools=Get-KoeBuildTools
+$taskCompiler=$taskTools.Compiler
+$taskSdk=$taskTools.SDK
+$taskSdkVersion=$taskTools.Version
 $taskBuild=Split-Path $OutputPath
 New-Item -ItemType Directory -Force -Path $taskBuild | Out-Null
 $taskOldPath=$env:PATH
@@ -16,7 +18,7 @@ try{
     $taskSources=@('buffer.c','hook.c','trampoline.c','hde\hde64.c') | ForEach-Object {Join-Path $taskRoot "third_party\minhook\src\$_"}
     Push-Location $taskBuild
     try{
-        & cl.exe /nologo /W4 /O2 /MT /LD /EHsc /std:c++17 @taskIncludes (Join-Path $PSScriptRoot 'NativeTextureEncoder.cpp') @taskSources /link @taskLibs "/OUT:$OutputPath"
+        & cl.exe /nologo /W4 /O2 /MT /LD /EHsc /std:c++17 @taskIncludes (Join-Path $PSScriptRoot 'NativeTextureEncoder.cpp') @taskSources /link @taskLibs psapi.lib "/OUT:$OutputPath"
         if($LASTEXITCODE -ne 0){throw 'Native texture encoder build failed'}
     }finally{Pop-Location}
 }finally{$env:PATH=$taskOldPath}

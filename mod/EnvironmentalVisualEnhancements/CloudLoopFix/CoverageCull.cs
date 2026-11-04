@@ -5,7 +5,6 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
-using System.Security.Cryptography;
 using System.Threading.Tasks;
 using HarmonyLib;
 using UnityEngine;
@@ -39,16 +38,10 @@ namespace CloudLoopFix
             wide=true;if(Environment.GetEnvironmentVariable("KOE_COVERAGE_CULL")=="0"){Destroy(this);return;}
 #else
             wide=Environment.GetEnvironmentVariable("KOE_EVE_COVERAGE_CULL")=="1";
-            if(!wide&&Environment.GetEnvironmentVariable("KOE_EVE_AURORA_CULL")!="1"){Destroy(this);return;}
+            if(!wide){Destroy(this);return;}
 #endif
             harmony=new Harmony("local.kerbaloverengineering.eve-coverage-cull");
             try{
-                if(!wide){
-                    string path=Path.Combine(KSPUtil.ApplicationRootPath,@"GameData\SPVE\PluginData\auroraCoverage.dds");
-                    string hash;using(var sha=SHA256.Create())using(var stream=File.OpenRead(path))hash=BitConverter.ToString(sha.ComputeHash(stream)).Replace("-","").ToLowerInvariant();
-                    if(hash!="aad00fe8d23112e4af49fbc9e4b9e3192da6ead4b2ef936815264bf061dce366")throw new NotSupportedException("Unknown aurora map");
-                    if(!new CoverageZeroMap(File.ReadAllBytes(path)).EmptyRectangle(0,1,(90-57)/180.0,(90+57)/180.0))throw new NotSupportedException("Zero coverage certificate failed");
-                }
                 var assembly=AppDomain.CurrentDomain.GetAssemblies().Single(a=>a.GetName().Name=="Atmosphere");
                 if(assembly.ManifestModule.ModuleVersionId!=new Guid("8150e218-893c-4b2c-a852-b674a3006cfd"))throw new NotSupportedException("Unknown EVE");
                 var volume=assembly.GetType("Atmosphere.CloudsRaymarchedVolume",true);
@@ -78,10 +71,6 @@ namespace CloudLoopFix
                 DontDestroyOnLoad(gameObject);Emit("COVERAGE_CULL_MODE","visibility across scenes/cameras; wide="+wide+"; exact BC4 zero coverage; planet occlusion bound 0.95R; three-degree margin; lighting list unchanged; unsupported cases retain original rendering");
             }catch(Exception ex){harmony.UnpatchAll(harmony.Id);harmony=null;Emit("COVERAGE_CULL_DISABLED",ex.GetType().Name+": "+ex.Message);Destroy(this);}
         }
-        public static bool Hidden(double cameraRadius,double outerRadius,double occluderRadius,double latitudeDegrees)
-        {
-            return CoverageVisibility.HiddenInLatitudeBand(cameraRadius,outerRadius,occluderRadius,latitudeDegrees,-57,57,3);
-        }
         public static void AfterBinding(object __instance,Material __0,string __1)
         {
             if(__1!="CloudCoverage"||__0==null)return;
@@ -92,7 +81,7 @@ namespace CloudLoopFix
         {
             Candidate candidate;if(!candidates.TryGetValue(volume,out candidate)){
                 object wrapper=coverage.GetValue(volume);string source=wrapper==null?null:(string)coveragePath.GetValue(wrapper);
-                candidate=new Candidate{Eligible=source=="SPVE/PluginData/auroraCoverage",Path=source,Wrapper=wrapper};
+                candidate=new Candidate{Path=source,Wrapper=wrapper};
                 if(wide){
                     candidate.Eligible=false;
                     if(wrapper!=null&&mapType.GetValue(wrapper).ToString()=="AlphaMap"&&mapMask.GetValue(wrapper).ToString()=="ALPHAMAP_R"&&flowMap.GetValue(volume)==null&&!(bool)detailTex.GetValue(volume)&&!HasItems(painterTiles.GetValue(volume))&&!HasItems(painterMasks.GetValue(volume))){
@@ -134,16 +123,19 @@ namespace CloudLoopFix
                 if(flowMap.GetValue(volume)!=null||(bool)detailTex.GetValue(volume)||HasItems(painterTiles.GetValue(volume))||HasItems(painterMasks.GetValue(volume)))return false;
             }
             var planet=(CelestialBody)body.GetValue(volume);
-            if(planet==null||planet.bodyName!="Kerbin"||!planet.ocean||planet.Radius!=600000)return false;
+            if(planet==null)return false;
+            var terrain=planet.pqsController;
+            double minimum=terrain!=null&&terrain.isStarted?terrain.radiusMin:double.NaN;
+            double occluder=CoverageVisibility.OccluderRadius(planet.Radius,planet.ocean,minimum);
+            if(double.IsNaN(occluder))return false;
             var matrix=(Matrix4x4)rotation.GetValue(volume);
             // A spherical cap stays spherical only under a rigid transform.
             Vector3 x=matrix.GetColumn(0),y=matrix.GetColumn(1),z=matrix.GetColumn(2);
             if(Mathf.Abs(x.sqrMagnitude-1)>0.0001f||Mathf.Abs(y.sqrMagnitude-1)>0.0001f||Mathf.Abs(z.sqrMagnitude-1)>0.0001f||Mathf.Abs(Vector3.Dot(x,y))>0.0001f||Mathf.Abs(Vector3.Dot(x,z))>0.0001f||Mathf.Abs(Vector3.Dot(y,z))>0.0001f)return false;
             Vector3 mapped=matrix.MultiplyPoint(camera.transform.position);double radius=(camera.transform.position-planet.transform.position).magnitude;
             if(mapped.sqrMagnitude<=0||Math.Abs(mapped.magnitude-radius)>radius*.0001)return false;
-            double latitude=Math.Asin(Math.Max(-1,Math.Min(1,mapped.normalized.y)))*180/Math.PI;
-            if(wide){Vector2 uv=getUV(mapped.normalized);return proof.EmptyCap(uv.x,uv.y,CoverageVisibility.VisibleCapDegrees(radius,(float)outer.GetValue(volume),planet.Radius*.95)+3);}
-            return Hidden(radius,(float)outer.GetValue(volume),planet.Radius*.95,latitude);
+            Vector2 uv=getUV(mapped.normalized);
+            return proof.EmptyCap(uv.x,uv.y,CoverageVisibility.VisibleCapDegrees(radius,(float)outer.GetValue(volume),occluder)+3);
         }
         static bool HasItems(object value){var list=value as ICollection;return list!=null&&list.Count>0;}
         public static void BeforeRender(object __instance)

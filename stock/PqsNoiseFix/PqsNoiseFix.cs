@@ -17,7 +17,7 @@ namespace PqsNoiseFix
             if(!string.IsNullOrEmpty(mode)&&mode!="0"){Destroy(this);return;}
             try{
                 NoiseKernel.Apply(3,Log,KerbalOverEngineering.Options.Settings.Enabled("Stock.PqsPatchStateMemo"));applied=true;DontDestroyOnLoad(gameObject);
-                Debug.Log("[PqsNoiseFix] Loaded 1.0.0: Kerbin Simplex preparation on worker-owned clones; original callbacks and arithmetic retained");
+                Debug.Log("[PqsNoiseFix] Loaded: supported Simplex generators on any body; worker-owned clones; original callbacks and arithmetic retained");
             }catch(Exception ex){Debug.LogError("[PqsNoiseFix] Disabled: "+ex.Message);Destroy(this);}
         }
         static void Log(string kind,string message)

@@ -1,6 +1,7 @@
 /dist/
 /build/
 /artifacts/package38-build/
+/artifacts/compatibility-tests/
 *.obj
 *.pdb
 *.ilk

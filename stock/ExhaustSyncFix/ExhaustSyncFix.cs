@@ -25,9 +25,6 @@ namespace ExhaustSyncFix
             if (harmony != null) return;
             if (typeof(Part).Assembly.ManifestModule.ModuleVersionId != Supported)
                 throw new NotSupportedException("ExhaustSyncFix supports the verified KSP 1.12.5 assembly only.");
-            foreach (Assembly assembly in AppDomain.CurrentDomain.GetAssemblies())
-                if (assembly.GetName().Name == "KSPCommunityFixes")
-                    throw new InvalidOperationException("KSPCommunityFixes already supplies an exhaust raycast optimization.");
             MethodInfo target = AccessTools.Method(typeof(ModuleEngines), "EngineExhaustDamage", Type.EmptyTypes);
             var instance = new Harmony(Id);
             instance.Patch(target, new HarmonyMethod(typeof(Patch), "Before"), null, null,

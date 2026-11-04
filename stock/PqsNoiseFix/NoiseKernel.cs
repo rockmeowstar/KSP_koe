@@ -16,7 +16,7 @@ namespace PqsNoiseFix
     {
         const string Id="local.koe.pqs-noise-preparation";
         const int MaxPoints=300000;
-        const long MaxValuesBytes=64L*1024*1024;
+        static long MaxValuesBytes { get { return KerbalOverEngineering.Options.LoadingResources.Current.NoiseBudget; } }
         internal struct Point:IEquatable<Point>
         {
             public long X,Y,Z;
@@ -139,7 +139,7 @@ namespace PqsNoiseFix
         }
         public static void Begin(PQS __instance,out Batch __state)
         {
-            __state=current;current=new Batch{Sphere=__instance.name,Enabled=__instance.name=="Kerbin",Started=Stopwatch.GetTimestamp()};
+            __state=current;current=new Batch{Sphere=__instance.name,Started=Stopwatch.GetTimestamp()};
         }
         public static Exception End(Batch __state,Exception __exception)
         {
@@ -155,12 +155,14 @@ namespace PqsNoiseFix
         static Simplex[] Generators(PQS sphere)
         {
             var list=new List<Simplex>();var mods=(PQSMod[])AccessTools.Field(typeof(PQS),"mods").GetValue(sphere);
+            if(mods==null)return list.ToArray();
             foreach(var modifier in mods){
+                if(ReferenceEquals(modifier,null))continue;
                 if(heightTypes.Contains(modifier.GetType()))AddGenerator(list,(Simplex)AccessTools.Field(modifier.GetType(),"simplex").GetValue(modifier));
                 if(modifier.GetType()!=typeof(PQSLandControl))continue;
                 foreach(var field in typeof(PQSLandControl).GetFields(BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic))if(field.FieldType==typeof(Simplex))AddGenerator(list,(Simplex)field.GetValue(modifier));
                 var classes=(Array)AccessTools.Field(typeof(PQSLandControl),"landClasses").GetValue(modifier);
-                foreach(var landClass in classes)foreach(var field in landClass.GetType().GetFields(BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic))if(field.FieldType==typeof(Simplex))AddGenerator(list,(Simplex)field.GetValue(landClass));
+                if(classes!=null)foreach(var landClass in classes){if(landClass==null)continue;foreach(var field in landClass.GetType().GetFields(BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic))if(field.FieldType==typeof(Simplex))AddGenerator(list,(Simplex)field.GetValue(landClass));}
             }return list.ToArray();
         }
         static void Collect(PQ quad,Batch batch)
@@ -178,11 +180,14 @@ namespace PqsNoiseFix
         }
         public static void Prepare(PQS sphere)
         {
-            var batch=current;if(batch==null||!batch.Enabled||mode==1||invalid)return;
+            var batch=current;if(batch==null||invalid)return;
+            if(MaxValuesBytes<=0)return;
             try{
-                if(!Compatible()||PQS.cacheVertCount!=225||PQS.cacheVerts.Length!=225)throw new NotSupportedException("Unsupported active pipeline; "+CompatibilityDetails());
                 long start=Stopwatch.GetTimestamp();var originals=Generators(sphere).Where(s=>s.octaves>=1&&s.octaves<=16&&!double.IsNaN(s.frequency)&&!double.IsInfinity(s.frequency)&&!double.IsNaN(s.persistence)&&!double.IsInfinity(s.persistence)&&readPerm(s)!=null&&readPerm(s).Length==512).Take(64).ToArray();
-                if(originals.Length==0||originals.Length>64)throw new NotSupportedException("Generator count unsupported");
+                if(originals.Length==0)return; // No supported generators: no work, compatibility scans or per-batch logs.
+                batch.Enabled=true;if(mode==1)return;
+                if(!Compatible()){invalid=true;throw new NotSupportedException("Unsupported active pipeline; "+CompatibilityDetails());}
+                if(PQS.cacheVerts==null||PQS.cacheVertCount<1||PQS.cacheVertCount>PQS.cacheVerts.Length)throw new NotSupportedException("Invalid PQS vertex cache");
                 batch.Generators=originals.Select(s=>new Generator{Original=s,Perm=readPerm(s),Octaves=BitConverter.DoubleToInt64Bits(s.octaves),Persistence=BitConverter.DoubleToInt64Bits(s.persistence),Frequency=BitConverter.DoubleToInt64Bits(s.frequency)}).ToArray();
                 batch.Index=new Dictionary<Point,int>();batch.Points=new List<Point>();foreach(var quad in sphere.quads)Collect(quad,batch);
                 if(batch.Points.Count==0)throw new NotSupportedException("No unbuilt leaf coordinates");

@@ -26,7 +26,6 @@ namespace MenuSkyboxFix
         static readonly FieldInfo Raw=AccessTools.Field(typeof(MapSO),"_data");
         static Job prepared;
         static bool closed;
-        float releaseAfter;
         public static long UploadedMaps, ReplacedPixels, ReplacedRoundCalls, PaletteRoundCalls, PreparedHits, MaxWorkers, Preparations, Fallbacks;
         public static MethodInfo Bind(Assembly assembly,Assembly kopernicus)
         {
@@ -46,7 +45,7 @@ namespace MenuSkyboxFix
                 var target=Bind(assemblies.Single(a=>a.GetName().Name=="ParallaxContinued"),assemblies.Single(a=>a.GetName().Name=="Kopernicus"));
                 if(target==null)throw new NotSupportedException("Parallax biome call changed");
                 h.Patch(target,null,null,new HarmonyMethod(typeof(LaunchBiomePipeline),"Transpile"));
-                DontDestroyOnLoad(gameObject);releaseAfter=Time.realtimeSinceStartup+150;
+                DontDestroyOnLoad(gameObject);
                 Debug.Log("[MenuSkyboxFix] Biome palette preparation: pure CPU workers during loading; original RGB24 upload on main thread.");
             }
             catch(Exception ex){h.UnpatchAll(id);Debug.LogWarning("[MenuSkyboxFix] Biome pipeline unavailable: "+ex.Message);Destroy(this);}
@@ -71,7 +70,7 @@ namespace MenuSkyboxFix
         static Job Prepare(MapSO map)
         {
             var data=(byte[])Raw.GetValue(map);
-            if(map.Width<1||map.Height<1||data.LongLength!=(long)map.Width*map.Height||data.LongLength*4>128L*1024*1024)
+            if(map.Width<1||map.Height<1||data.LongLength!=(long)map.Width*map.Height||data.LongLength*4>KerbalOverEngineering.Options.LoadingResources.Current.BiomeBudget)
                 throw new NotSupportedException("Biome preparation budget or shape");
             var job=new Job{Source=map,Indices=(byte[])data.Clone(),Palette=Palette(map),Width=map.Width,Height=map.Height};
             int degree=Environment.ProcessorCount;
@@ -92,7 +91,7 @@ namespace MenuSkyboxFix
         }
         public void Update()
         {
-            if(Time.realtimeSinceStartup>=releaseAfter){Release();Destroy(this);return;}
+            if(HighLogic.LoadedScene==GameScenes.FLIGHT&&FlightGlobals.ready){Release();Destroy(this);return;}
             if(closed||prepared!=null||PSystemManager.Instance==null||FlightGlobals.Bodies==null||FlightGlobals.Bodies.Count==0)return;
             var home=FlightGlobals.GetHomeBody();if(home==null||!Supported(home.BiomeMap))return;
             try

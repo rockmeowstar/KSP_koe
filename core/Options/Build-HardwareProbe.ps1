@@ -1,9 +1,11 @@
 param([string]$OutputDirectory)
 $ErrorActionPreference='Stop'
 $taskRoot=Split-Path (Split-Path $PSScriptRoot)
-$taskCompiler='C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231'
-$taskSdk='C:\Program Files (x86)\Windows Kits\10'
-$taskVersion='10.0.26100.0'
+. "$taskRoot\core\BuildTools.ps1"
+$taskTools=Get-KoeBuildTools
+$taskCompiler=$taskTools.Compiler
+$taskSdk=$taskTools.SDK
+$taskVersion=$taskTools.Version
 New-Item -ItemType Directory -Force $OutputDirectory | Out-Null
 $taskIncludes=@("$taskCompiler\include","$taskSdk\Include\$taskVersion\ucrt","$taskSdk\Include\$taskVersion\shared","$taskSdk\Include\$taskVersion\um","$taskSdk\Include\$taskVersion\winrt","$taskRoot\third_party\nvidia-optical-flow-headers") | ForEach-Object {"/I$_"}
 $taskLibraries=@("$taskCompiler\lib\x64","$taskSdk\Lib\$taskVersion\ucrt\x64","$taskSdk\Lib\$taskVersion\um\x64") | ForEach-Object {"/LIBPATH:$_"}

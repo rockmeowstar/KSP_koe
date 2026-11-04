@@ -26,14 +26,14 @@ namespace PngPipelineFix
             public UnityWebRequest Request;
             public UnityWebRequestAsyncOperation Operation;
         }
-        const long Budget = 256L * 1024 * 1024;
+        static readonly long Budget = KerbalOverEngineering.Options.LoadingResources.Current.PngBudget;
         static readonly List<Job> jobs = new List<Job>();
         static readonly Dictionary<string, Job> lookup = new Dictionary<string, Job>(StringComparer.OrdinalIgnoreCase);
         static readonly Dictionary<UnityWebRequest, Job> sent = new Dictionary<UnityWebRequest, Job>();
         static bool initialized, stopped;
         static int next, residents, consumedBefore;
         static long reserved;
-        public static readonly int Window = Math.Max(1, Environment.ProcessorCount);
+        public static readonly int Window = KerbalOverEngineering.Options.LoadingResources.Current.DecodeWindow;
         public static readonly long QueueWindow = Window;
         public static long Uses, ReadyAtUse, Started, Fallback, PeakResident, PeakReserved;
         static void Init()
@@ -193,7 +193,7 @@ namespace PngPipelineFix
             }
             catch { patcher.UnpatchAll(Id); throw; }
             harmony = patcher;
-            Debug.Log("[PngPipelineFix] Loaded 1.0.0: window=" + Pipeline.Window + " logical CPUs; 256 MiB estimated queue budget; stock conversion retained.");
+            Debug.Log("[PngPipelineFix] Loaded: window=" + Pipeline.Window + "; hardware-sized queue budget; stock conversion retained.");
         }
     }
     [KSPAddon(KSPAddon.Startup.Instantly, true)]

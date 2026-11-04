@@ -14,6 +14,7 @@ namespace KerbalOverEngineering.Options
         static OptionStore store;
         static bool failed;
         static readonly object gate = new object();
+        static readonly HashSet<string> compatibilityMessages = new HashSet<string>();
         public static string ConfigPath { get { return Path.Combine(KSPUtil.ApplicationRootPath, "GameData/KerbalOverEngineering/Options.cfg"); } }
         public static bool Enabled(string key)
         {
@@ -26,13 +27,20 @@ namespace KerbalOverEngineering.Options
                     {
                         var support = new Support();
                         store = new OptionStore(ConfigPath, support.Check);
+                        Debug.Log("[KOE Runtime] " + RuntimeCompatibility.Description);
                         Debug.Log("[KOE Options] " + (store.Created ? "Generated " : "Read ") + ConfigPath);
                         foreach (Feature feature in Catalog.Features)
                             Debug.Log("[KOE Options] " + feature.Key + "=" + store.Enabled(feature.Key) + (store.Reason(feature.Key) == null ? "" : "; " + store.Reason(feature.Key)));
                     }
                     catch (Exception error) { failed = true; Debug.LogError("[KOE Options] Cannot load config; fixes disabled: " + error); return false; }
                 }
-                return store.Enabled(key);
+                if (!store.Enabled(key)) return false;
+                string reason;
+                try { reason = CommunityFixes.Reason(key); }
+                catch (Exception error) { reason = "compatibility state unavailable: " + error.GetType().Name; }
+                if (reason == null) return true;
+                if (compatibilityMessages.Add(key + ":" + reason)) Debug.Log("[KOE Compatibility] " + key + " disabled: " + reason);
+                return false;
             }
         }
         sealed class Support
@@ -94,11 +102,12 @@ namespace KerbalOverEngineering.Options
                     case "D3D11": return Direct3D() ?? AssemblyProblem("Deferred");
                     case "OpticalFlow":
                         problem = Direct3D(); if (problem != null) return problem;
-                        if (SystemInfo.graphicsDeviceVendorID != 0x10de) return "NVIDIA Optical Flow hardware required";
-                        if (!File.Exists(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "nvofapi64.dll"))) return "NVIDIA driver Optical Flow API missing";
+                        // Proton may expose a compatibility vendor ID and provide
+                        // builtin DLLs without ordinary System32 files. Probe the
+                        // actual adapter/API; never treat file existence as support.
+                        if (!RuntimeCompatibility.IsWine && SystemInfo.graphicsDeviceVendorID != 0x10de) return "NVIDIA Optical Flow hardware required";
                         return HardwareProbe.OpticalFlow();
                 }
-                if (feature.Key == "Stock.ExhaustSync" && assemblies.Any(a => a.GetName().Name == "KSPCommunityFixes")) return "KSPCommunityFixes already owns this optimization";
                 return null;
             }
         }

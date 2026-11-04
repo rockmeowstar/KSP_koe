@@ -83,8 +83,10 @@ namespace CloudLoopFix
                 string root=Path.GetFullPath(Path.Combine(KSPUtil.ApplicationRootPath,"GameData"))+Path.DirectorySeparatorChar;
                 // ModuleManager has finished before PartLoader. Snapshot config values on the main thread.
                 foreach(var config in GameDatabase.Instance.GetConfigs("EVE_CLOUDS"))
-                    foreach(var node in config.config.GetNodes("OBJECT"))if(node.GetValue("body")=="Kerbin")Collect(node,paths,root);
-                bank=new EarlyFileBank(paths,128L*1024*1024,4);
+                    foreach(var node in config.config.GetNodes("OBJECT"))Collect(node,paths,root);
+                var resources=KerbalOverEngineering.Options.LoadingResources.Current;
+                if(resources.EveBudget<=0)return;
+                bank=new EarlyFileBank(paths,resources.EveBudget,resources.Workers);
                 Debug.Log("[CloudLoopFix] EVE file preparation during PartLoader: files="+bank.SelectedFiles+"; budgetBytes="+bank.ReservedBytes);
             }
             catch(Exception ex){Debug.LogWarning("[CloudLoopFix] EVE preparation skipped: "+ex.Message);}
@@ -119,13 +121,12 @@ namespace CloudLoopFix
     [KSPAddon(KSPAddon.Startup.Instantly,true)]
     public sealed class EveTextureBootstrap:MonoBehaviour
     {
-        float releaseAfter;
         public void Awake()
         {
-            try{EveTexturePatch.Apply();DontDestroyOnLoad(gameObject);releaseAfter=Time.realtimeSinceStartup+150;}
+            try{EveTexturePatch.Apply();DontDestroyOnLoad(gameObject);GameEvents.onLevelWasLoadedGUIReady.Add(Ready);}
             catch(Exception ex){Debug.LogError("[CloudLoopFix] EVE texture pipeline disabled: "+ex);Destroy(this);}
         }
-        public void Update(){if(Time.realtimeSinceStartup>=releaseAfter){EveTexturePatch.Release();Destroy(this);}}
-        public void OnDestroy(){EveTexturePatch.Release();}
+        void Ready(GameScenes scene){if(scene!=GameScenes.MAINMENU&&scene!=GameScenes.LOADING){EveTexturePatch.Release();Destroy(this);}}
+        public void OnDestroy(){GameEvents.onLevelWasLoadedGUIReady.Remove(Ready);EveTexturePatch.Release();}
     }
 }

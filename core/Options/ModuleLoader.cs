@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.IO;
 using System.Reflection;
 using System.Security.Cryptography;
@@ -9,6 +10,24 @@ namespace KerbalOverEngineering.Options
     public static class ModuleLoader
     {
         public static void Start(Assembly wrapper)
+        {
+            if (CommunityFixes.Present)
+            {
+                string keys;
+                using (var reader = new StreamReader(wrapper.GetManifestResourceStream("module.info"))) keys = reader.ReadLine();
+                bool postLoad = false, loader = false;
+                foreach (string key in keys.Split(',')) { postLoad |= CommunityFixes.NeedsPostLoad(key.Trim()); loader |= CommunityFixes.ReplacesStockLoader(key.Trim()); }
+                if (postLoad || loader)
+                {
+                    var owner = new GameObject("KOE compatibility initialization");
+                    UnityEngine.Object.DontDestroyOnLoad(owner);
+                    owner.AddComponent<CompatibilityStart>().Begin(wrapper, postLoad);
+                    return;
+                }
+            }
+            StartNow(wrapper);
+        }
+        internal static void StartNow(Assembly wrapper)
         {
             try
             {
@@ -32,6 +51,28 @@ namespace KerbalOverEngineering.Options
                 }
             }
             catch (Exception error) { Debug.LogError("[KOE] Module disabled: " + wrapper.GetName().Name + ": " + error); }
+        }
+    }
+
+    public sealed class CompatibilityStart : MonoBehaviour
+    {
+        public void Begin(Assembly wrapper, bool postLoad) { StartCoroutine(Wait(wrapper, postLoad)); }
+        IEnumerator Wait(Assembly wrapper, bool postLoad)
+        {
+            // All Instantly add-ons get their Awake before the next frame. KSPCF
+            // applies its configured BasePatches later, in the MM post-load callback.
+            yield return null;
+            while (postLoad && !CommunityFixes.Ready)
+            {
+                if (HighLogic.LoadedScene != GameScenes.LOADING)
+                {
+                    Debug.LogWarning("[KOE Compatibility] " + wrapper.GetName().Name + " disabled: KSPCF patch state unavailable");
+                    Destroy(gameObject); yield break;
+                }
+                yield return null;
+            }
+            ModuleLoader.StartNow(wrapper);
+            Destroy(gameObject);
         }
     }
 

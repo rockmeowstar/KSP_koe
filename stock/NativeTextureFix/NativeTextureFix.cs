@@ -15,6 +15,7 @@ namespace NativeTextureFix
         [DllImport("kernel32",CharSet=CharSet.Unicode,SetLastError=true)]static extern IntPtr LoadLibraryW(string path);
         [DllImport("kernel32",CharSet=CharSet.Ansi,ExactSpelling=true)]static extern IntPtr GetProcAddress(IntPtr module,string name);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]delegate int Initialize(int mode);
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]delegate int Probe();
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]delegate void Counters([Out]long[] values);
         static Counters read;
         public static long Calls,ParallelCalls,Mismatches,Rejected;
@@ -49,8 +50,9 @@ namespace NativeTextureFix
                 }finally{if(File.Exists(stage))File.Delete(stage);}
             }
             var module=LoadLibraryW(path);if(module==IntPtr.Zero)throw new InvalidOperationException("Native encoder load failed: "+Marshal.GetLastWin32Error());
-            var start=GetProcAddress(module,"Initialize");var counter=GetProcAddress(module,"Counters");
-            if(start==IntPtr.Zero||counter==IntPtr.Zero)throw new MissingMethodException("Native encoder exports unavailable");
+            var start=GetProcAddress(module,"Initialize");var counter=GetProcAddress(module,"Counters");var probe=GetProcAddress(module,"ProbeEncoder");
+            if(start==IntPtr.Zero||counter==IntPtr.Zero||probe==IntPtr.Zero)throw new MissingMethodException("Native encoder exports unavailable");
+            if(((Probe)Marshal.GetDelegateForFunctionPointer(probe,typeof(Probe)))()!=1)throw new NotSupportedException("Native encoder not found uniquely in executable Unity sections");
             var initialize=(Initialize)Marshal.GetDelegateForFunctionPointer(start,typeof(Initialize));
             int workers=initialize(3);if(workers<=0)throw new InvalidOperationException("Native encoder guard rejected: "+workers);
             read=(Counters)Marshal.GetDelegateForFunctionPointer(counter,typeof(Counters));

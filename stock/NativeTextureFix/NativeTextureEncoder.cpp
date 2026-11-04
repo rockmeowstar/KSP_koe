@@ -2,11 +2,13 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
+#include <psapi.h>
 #include <atomic>
 #include <vector>
 #include <algorithm>
 #include <cstring>
 #include "MinHook.h"
+#include "EncoderLocator.h"
 
 using Encoder = void (*)(int,int,const unsigned char*,unsigned char*,bool,bool);
 static Encoder original;
@@ -17,6 +19,30 @@ static int mode;
 static std::atomic_flag busy = ATOMIC_FLAG_INIT;
 static std::atomic<bool> rejected(false);
 static std::atomic<long long> calls(0),parallelCalls(0),checks(0),mismatches(0),bytes(0),serialTicks(0),parallelTicks(0);
+static void* FindEncoder() {
+ auto module=GetModuleHandleW(L"UnityPlayer.dll");MODULEINFO info{};
+ if(!module||!GetModuleInformation(GetCurrentProcess(),module,&info,sizeof(info)))return nullptr;
+ auto* image=static_cast<unsigned char*>(info.lpBaseOfDll);const auto size=info.SizeOfImage;
+ if(size<sizeof(IMAGE_DOS_HEADER))return nullptr;
+ auto* dos=reinterpret_cast<const IMAGE_DOS_HEADER*>(image);
+ if(dos->e_magic!=IMAGE_DOS_SIGNATURE||dos->e_lfanew<0||static_cast<unsigned long long>(dos->e_lfanew)+sizeof(IMAGE_NT_HEADERS64)>size)return nullptr;
+ auto* nt=reinterpret_cast<const IMAGE_NT_HEADERS64*>(image+dos->e_lfanew);
+ if(nt->Signature!=IMAGE_NT_SIGNATURE||nt->FileHeader.Machine!=IMAGE_FILE_MACHINE_AMD64||nt->OptionalHeader.Magic!=IMAGE_NT_OPTIONAL_HDR64_MAGIC)return nullptr;
+ auto* sections=IMAGE_FIRST_SECTION(nt);
+ if(reinterpret_cast<const unsigned char*>(sections)-image+static_cast<unsigned long long>(nt->FileHeader.NumberOfSections)*sizeof(IMAGE_SECTION_HEADER)>size)return nullptr;
+ void* found=nullptr;
+ for(unsigned i=0;i<nt->FileHeader.NumberOfSections;++i){
+  const auto& section=sections[i];
+  if(!(section.Characteristics&IMAGE_SCN_MEM_EXECUTE)||!(section.Characteristics&IMAGE_SCN_MEM_READ))continue;
+  const auto offset=section.VirtualAddress,length=section.Misc.VirtualSize;
+  if(offset>=size||length>size-offset)return nullptr;
+  auto match=EncoderLocator::Find(image+offset,length);
+  if(match.count>1||(match.count&&found))return nullptr;
+  if(match.count)found=image+offset+match.offset;
+ }
+ return found;
+}
+extern "C" __declspec(dllexport) int ProbeEncoder(){return original||FindEncoder()?1:0;}
 struct Job { int width,height; const unsigned char* input; unsigned char* output; bool alpha,quality; };
 static void Encode(const Job& j){original(j.width,j.height,j.input,j.output,j.alpha,j.quality);}
 static void CALLBACK Worker(PTP_CALLBACK_INSTANCE,void* context,PTP_WORK){Encode(*static_cast<Job*>(context));}
@@ -79,12 +105,9 @@ extern "C" __declspec(dllexport) int Initialize(int requestedMode)
 {
     if(original)return -1;
     if(requestedMode<1||requestedMode>3)return -2;
-    auto module=reinterpret_cast<unsigned char*>(GetModuleHandleW(L"UnityPlayer.dll"));
-    if(!module)return -3;
-    // Exact 2019.4.18f1 image prologue; the managed caller additionally checks SHA256.
-    const unsigned char signature[]={0x85,0xd2,0x0f,0x8e,0xc2,0x02,0x00,0x00,0x48,0x8b,0xc4};
-    void* target=module+0x69fbf0;
-    if(std::memcmp(target,signature,sizeof(signature)))return -4;
+    // Resolve from the loaded image base; never assume a fixed function RVA.
+    // The managed caller also verifies the supported Unity image SHA256.
+    void* target=FindEncoder();if(!target)return -3;
     processors=std::max(1u,static_cast<unsigned>(GetActiveProcessorCount(ALL_PROCESSOR_GROUPS)));
     pool=CreateThreadpool(nullptr);if(!pool)return -5;
     SetThreadpoolThreadMaximum(pool,std::max(1u,processors-1));

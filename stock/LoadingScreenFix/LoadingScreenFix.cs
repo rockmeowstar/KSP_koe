@@ -73,7 +73,7 @@ namespace LoadingScreenFix
         }
         static IEnumerator Wait(LoadingBufferMask mask,GameScenes scene,int token,IEnumerator stock)
         {
-            show.Invoke(mask,null);float start=Time.realtimeSinceStartup;int stable=0;
+            show.Invoke(mask,null);int stable=0;
             while(token==generation&&HighLogic.LoadedScene==scene)
             {
                 bool ready=false,fallback=false;
@@ -90,7 +90,7 @@ namespace LoadingScreenFix
                     ready=ready&&EffectsReady(scene,home);
                 }
                 catch(Exception ex){fallback=true;Debug.LogWarning("[LoadingScreenFix] Stock wait: "+ex.Message);}
-                if(fallback||Time.realtimeSinceStartup-start>30)
+                if(fallback)
                 {
                     Fallbacks++;
                     while(token==generation&&HighLogic.LoadedScene==scene&&stock.MoveNext())yield return stock.Current;

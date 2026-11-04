@@ -1,9 +1,11 @@
 param([string]$OutputDirectory)
 $ErrorActionPreference='Stop'
 $taskRoot=Split-Path (Split-Path $PSScriptRoot)
-$taskCompiler='C:\Program Files\Microsoft Visual Studio\18\Community\VC\Tools\MSVC\14.51.36231'
-$taskSdk='C:\Program Files (x86)\Windows Kits\10'
-$taskVersion='10.0.26100.0'
+. "$taskRoot\core\BuildTools.ps1"
+$taskTools=Get-KoeBuildTools
+$taskCompiler=$taskTools.Compiler
+$taskSdk=$taskTools.SDK
+$taskVersion=$taskTools.Version
 if(-not $OutputDirectory){$OutputDirectory=Join-Path $taskRoot 'artifacts\point-lights-production'}
 New-Item -ItemType Directory -Force $OutputDirectory | Out-Null
 $taskIncludes=@("$taskCompiler\include","$taskSdk\Include\$taskVersion\ucrt","$taskSdk\Include\$taskVersion\shared","$taskSdk\Include\$taskVersion\um","$taskSdk\Include\$taskVersion\winrt","$taskRoot\third_party\minhook\include",$PSScriptRoot) | ForEach-Object {"/I$_"}

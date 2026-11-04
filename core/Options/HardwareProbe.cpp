@@ -31,7 +31,10 @@ extern "C" __declspec(dllexport) int ProbeOpticalFlow(unsigned vendor, unsigned 
     auto create=reinterpret_cast<Create>(GetProcAddress(module,"NvOFAPICreateInstanceD3D11"));
     NV_OF_D3D11_API_FUNCTION_LIST api{}; NvOFHandle session{};
     int result=-6;
-    if (create && create(NV_OF_API_VERSION,&api)==NV_OF_SUCCESS)
+    if (create && create(NV_OF_API_VERSION,&api)==NV_OF_SUCCESS &&
+        api.nvCreateOpticalFlowD3D11 && api.nvOFInit && api.nvOFDestroy &&
+        api.nvOFRegisterResourceD3D11 && api.nvOFUnregisterResourceD3D11 &&
+        api.nvOFExecute)
     {
         NV_OF_STATUS status=api.nvCreateOpticalFlowD3D11(device.Get(),context.Get(),&session);
         result=static_cast<int>(status);

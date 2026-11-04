@@ -29,7 +29,7 @@ namespace DdsUploadFix
 
         public FilePrefetch(IEnumerable<string> paths, long budgetBytes, int workerCount)
         {
-            if (budgetBytes <= 0 || workerCount < 1 || workerCount > 4) throw new ArgumentOutOfRangeException();
+            if (budgetBytes <= 0 || workerCount < 1) throw new ArgumentOutOfRangeException();
             budget = budgetBytes;
             foreach (string path in paths)
             {
@@ -37,10 +37,10 @@ namespace DdsUploadFix
                 if (lookup.ContainsKey(full)) continue;
                 var job = new Job { Path = full, Index = jobs.Count }; lookup.Add(full, job); jobs.Add(job);
             }
-            workers = new Thread[workerCount];
+            workers = new Thread[Math.Min(workerCount, jobs.Count)];
             try
             {
-                for (int i = 0; i < workerCount; i++)
+                for (int i = 0; i < workers.Length; i++)
                 { workers[i] = new Thread(Work) { IsBackground = true, Name = "KOE DDS I/O " + i }; workers[i].Start(); }
             }
             catch { Dispose(); throw; }
@@ -179,7 +179,8 @@ namespace DdsUploadFix
                         var paths = new List<string>();
                         foreach (var file in database.root.GetFiles(UrlDir.FileType.Texture))
                             if (string.Equals(file.fileExtension, "dds", StringComparison.OrdinalIgnoreCase)) paths.Add(file.fullPath);
-                        active = new FilePrefetch(paths, 64L * 1024 * 1024, 2);
+                        var resources = KerbalOverEngineering.Options.LoadingResources.Current;
+                        if (resources.DdsBudget > 0) active = new FilePrefetch(paths, resources.DdsBudget, resources.Workers);
                     }
                 }
                 catch (Exception ex) { UnityEngine.Debug.LogWarning("[DdsUploadFix] Prefetch unavailable; using stock file reads: " + ex.Message); }

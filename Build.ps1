@@ -1,5 +1,7 @@
-param([string]$GamePath='D:\SteamLibrary\steamapps\common\Kerbal Space Program')
+param([string]$GamePath=$env:KSP_ROOT,[string]$ReleaseVersion='0.15.1')
 $ErrorActionPreference='Stop'
+if($ReleaseVersion -notmatch '^\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?$'){throw 'Invalid release version'}
+if(-not $GamePath -or -not (Test-Path -LiteralPath (Join-Path $GamePath 'KSP_x64.exe'))){throw 'Specify -GamePath pointing to KSP, or set KSP_ROOT'}
 $taskRoot=$PSScriptRoot
 $taskCsc=Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
 $taskManaged=Join-Path $GamePath 'KSP_x64_Data\Managed'
@@ -83,6 +85,9 @@ foreach($taskModule in $taskModules){
  if($LASTEXITCODE -ne 0){throw "Wrapper build failed: $taskName"}
 }
 Copy-Item -LiteralPath "$taskRoot\LICENSE","$taskRoot\LICENSES.md" -Destination $taskPackage
-Copy-Item -LiteralPath "$taskRoot\licenses" -Destination $taskPackage -Recurse
-Compress-Archive -LiteralPath "$taskRoot\dist\GameData" -DestinationPath "$taskRoot\dist\KerbalOverEngineering-0.15.0.zip" -CompressionLevel Optimal -Force
+New-Item -ItemType Directory -Force "$taskPackage\licenses" | Out-Null
+Copy-Item -Path "$taskRoot\licenses\*" -Destination "$taskPackage\licenses" -Force
+. "$taskRoot\core\Packaging.ps1"
+Write-KoeZip -SourceDirectory "$taskRoot\dist" -Destination "$taskRoot\dist\KerbalOverEngineering-$ReleaseVersion.zip"
+Write-KoeZip -SourceDirectory $taskRoot -Destination "$taskRoot\dist\KerbalOverEngineering-$ReleaseVersion-source.zip" -Paths @('core','stock','mod','third_party','tests','licenses','LICENSE','LICENSES.md','Build.ps1','Build-PointLights.ps1','artifacts/native-texture-production/NativeTextureEncoder.bin','.gitignore')
 Write-Output 'BUILD_PASS: core + 19 modules; GameData ZIP; no installer'

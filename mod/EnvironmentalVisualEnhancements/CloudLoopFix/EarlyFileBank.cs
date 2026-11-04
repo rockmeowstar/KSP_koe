@@ -21,7 +21,7 @@ namespace CloudLoopFix
         public long Hits, HitBytes;
         public EarlyFileBank(IEnumerable<string> paths,long budget,int workerCount)
         {
-            if(budget<1||budget>int.MaxValue||workerCount<1||workerCount>4)throw new ArgumentOutOfRangeException();
+            if(budget<1||workerCount<1)throw new ArgumentOutOfRangeException();
             long reserved=0;
             foreach(var path in paths)
             {
@@ -29,13 +29,13 @@ namespace CloudLoopFix
                 try
                 {
                     var info=new FileInfo(full);long length=info.Length;
-                    if(length>budget-reserved)continue;
+                    if(length>int.MaxValue||length>budget-reserved)continue;
                     var job=new Job{Path=full,Length=length,Stamp=info.LastWriteTimeUtc.Ticks};
                     reserved+=length;jobs.Add(full,job);queue.Enqueue(job);
                 }
                 catch(IOException){}catch(UnauthorizedAccessException){}
             }
-            ReservedBytes=reserved;SelectedFiles=jobs.Count;workers=new Thread[workerCount];
+            ReservedBytes=reserved;SelectedFiles=jobs.Count;workers=new Thread[Math.Min(workerCount,jobs.Count)];
             try
             {
                 for(int i=0;i<workers.Length;i++)
