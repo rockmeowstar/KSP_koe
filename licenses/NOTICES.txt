@@ -14,11 +14,16 @@ bridge/interpolation/UI protection and capability-probe implementations are KOE
 code. This product is independent and is not sponsored or endorsed by NVIDIA.
 NVIDIA names identify interoperability; trademarks remain their owners' property.
 
-The user needs a compatible NVIDIA GPU and installed driver. The mod checks the
+Frame generation requires a supported NVIDIA Turing-or-newer GPU and Windows
+driver 528.24 or newer, as specified for Optical Flow SDK 5.0. A newer GPU may
+require a newer driver that supports that GPU. KOE was tested with driver 621.01;
+528.24 is the documented API minimum, not a KOE-tested driver version.
+The mod checks the
 actual adapter/API and enables the option when supported. It does not accept a
 driver EULA for the user, install a driver or change driver settings.
 
 Official references:
+- https://docs.nvidia.com/video-technologies/optical-flow-sdk/read-me/index.html
 - https://docs.nvidia.com/video-technologies/optical-flow-sdk/license/index.html
 - https://docs.nvidia.com/video-technologies/optical-flow-sdk/nvofa-application-note/
 
