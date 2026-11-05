@@ -20,11 +20,16 @@ using Interpolator=FrucD3D11;
 #include <deque>
 #include <fstream>
 #include <sstream>
+#include "PresentationCadence.h"
+#include "ReShadeIntegration.h"
+#include "FinalPresentation.h"
 using Microsoft::WRL::ComPtr;
 using Clock=std::chrono::steady_clock;
 static std::atomic<bool> enabled{},allowed{},started{},stopWorker{};
+static std::atomic<bool> adaptiveCadence{};
 static std::atomic<long long> captured{},generated{},realPresents{},generatedPresents{},skipped{},repeated{},failures{},workerCallUs{};
 static std::atomic<long long> cleanCopies{},missingClean{};
+static std::atomic<long long> reshadeCaptures{},reshadeBypasses{};
 static std::atomic<int> captureFormat{},captureViewFormat{};
 static std::mutex stateMutex;
 static std::wstring library;
@@ -34,9 +39,12 @@ static std::atomic<unsigned> auditInstances{};
 static std::vector<double> auditSchedule;
 static size_t nextAudit{};static double auditEpoch{};
 #endif
-static HWND gameWindow{};
+static std::atomic<HWND> gameWindow{};
 static std::atomic<HWND> overlayWindow{};
+static std::atomic<long long> sourcePresentCalls{},sourcePresentUs{},sourceZeroSync{};
 static thread_local bool ownPresent=false;
+static thread_local int presentationKind=0;
+extern "C" __declspec(dllexport) int GetFrameGenerationPresentationKind(){return presentationKind;}
 using PresentFn=HRESULT(STDMETHODCALLTYPE*)(IDXGISwapChain*,UINT,UINT);
 static PresentFn originalPresent{};
 static HANDLE wakeEvent{};
@@ -96,31 +104,53 @@ static std::shared_ptr<Shared> CreateShared(IDXGISwapChain* chain,ID3D11Texture2
     desc.MiscFlags=0;Check(value->source->CreateTexture2D(&desc,nullptr,&value->cleanWorld),"pre-UI world texture");
     return value;
 }
+static void CapturePair(Shared& value,ID3D11Texture2D* finalImage){
+    if(value.cleanSerial==value.usedSerial){missingClean++;return;}
+    value.usedSerial=value.cleanSerial;
+    for(auto& slot:value.slots)if(slot.status==0&&slot.mutex->AcquireSync(0,0)==S_OK){
+        if(slot.finalMutex->AcquireSync(0,0)!=S_OK){slot.mutex->ReleaseSync(0);continue;}
+        value.context->CopyResource(slot.texture.Get(),value.cleanWorld.Get());value.context->CopyResource(slot.finalTexture.Get(),finalImage);value.context->Flush();
+        Check(slot.finalMutex->ReleaseSync(1),"UI release");Check(slot.mutex->ReleaseSync(1),"capture release");slot.timestamp=Seconds();slot.serial=value.cleanSerial;value.lastCaptured=slot.timestamp;slot.status=1;captured++;SetEvent(wakeEvent);return;
+    }
+    skipped++;
+}
+static void CaptureReShadeFinal(IDXGISwapChain* chain,HWND window){
+    if(!enabled.load()||!allowed.load()||window!=gameWindow.load()||GetForegroundWindow()!=window||IsIconic(window))return;
+    try{
+        std::lock_guard<std::mutex> lock(stateMutex);
+        if(!shared||shared->window!=window)return;
+        ComPtr<ID3D11Texture2D> image;Check(chain->GetBuffer(0,IID_PPV_ARGS(&image)),"ReShade final backbuffer");
+        D3D11_TEXTURE2D_DESC desc{};image->GetDesc(&desc);
+        if(desc.Width!=shared->desc.Width||desc.Height!=shared->desc.Height||desc.Format!=shared->desc.Format||desc.SampleDesc.Count!=1)return;
+        CapturePair(*shared,image.Get());reshadeCaptures++;
+    }catch(const std::exception& e){std::lock_guard<std::mutex> lock(stateMutex);lastError=e.what();failures++;enabled=false;if(wakeEvent)SetEvent(wakeEvent);}
+}
 static HRESULT STDMETHODCALLTYPE HookPresent(IDXGISwapChain* chain,UINT sync,UINT flags){
+    bool sourceCall=false;
     if(!ownPresent&&enabled.load()&&allowed.load()&&!(flags&DXGI_PRESENT_TEST)){
         try{
             DXGI_SWAP_CHAIN_DESC desc{};Check(chain->GetDesc(&desc),"chain description");DWORD pid{};GetWindowThreadProcessId(desc.OutputWindow,&pid);
             if(pid==GetCurrentProcessId()&&IsWindowVisible(desc.OutputWindow)&&GetForegroundWindow()==desc.OutputWindow&&!IsIconic(desc.OutputWindow)){
+                sourceCall=true;
                 ComPtr<ID3D11Texture2D> buffer;Check(chain->GetBuffer(0,IID_PPV_ARGS(&buffer)),"back buffer");D3D11_TEXTURE2D_DESC td{};buffer->GetDesc(&td);
                 if(Supported(td.Format)&&td.SampleDesc.Count==1){
                     std::lock_guard<std::mutex> lock(stateMutex);gameWindow=desc.OutputWindow;
                     if(!shared||shared->desc.Width!=td.Width||shared->desc.Height!=td.Height||shared->desc.Format!=td.Format||shared->window!=desc.OutputWindow)shared=CreateShared(chain,buffer.Get(),desc.OutputWindow);
                     double now=Seconds();if(shared->lastPresent>0)shared->cadence=std::clamp(shared->cadence*.8+(now-shared->lastPresent)*.2,1.0/240,.2);shared->lastPresent=now;
-                    bool copied=false;
-                    if(shared->cleanSerial==shared->usedSerial){missingClean++;return originalPresent(chain,sync,flags);}
-                    shared->usedSerial=shared->cleanSerial;
-                    for(auto& slot:shared->slots)if(slot.status==0&&slot.mutex->AcquireSync(0,0)==S_OK){
-                        if(slot.finalMutex->AcquireSync(0,0)!=S_OK){slot.mutex->ReleaseSync(0);continue;}
-                        shared->context->CopyResource(slot.texture.Get(),shared->cleanWorld.Get());shared->context->CopyResource(slot.finalTexture.Get(),buffer.Get());shared->context->Flush();
-                        Check(slot.finalMutex->ReleaseSync(1),"UI release");Check(slot.mutex->ReleaseSync(1),"capture release");slot.timestamp=Seconds();slot.serial=shared->cleanSerial;shared->lastCaptured=slot.timestamp;slot.status=1;captured++;copied=true;SetEvent(wakeEvent);break;
-                    }
-                    if(!copied)skipped++;
+                    // ReShade's official callback supplies the final image only
+                    // after its effects and menu have been rendered.
+                    if(!ReShadeIntegration::active.load())CapturePair(*shared,buffer.Get());
                 }
             }
         }catch(const std::exception& e){std::lock_guard<std::mutex> lock(stateMutex);lastError=e.what();failures++;enabled=false;SetEvent(wakeEvent);}
     }
-    return originalPresent(chain,sync,flags);
+    auto begin=Clock::now();
+    HRESULT result=originalPresent(chain,sync,flags);
+    if(sourceCall){sourcePresentCalls++;sourcePresentUs+=static_cast<long long>(std::chrono::duration<double,std::micro>(Clock::now()-begin).count());if(sync==0)sourceZeroSync++;}
+    return result;
 }
+extern "C" __declspec(dllexport) void ReadFrameGenerationPresentation(long long* values,int count){if(!values||count!=3)return;values[0]=sourcePresentCalls.load();values[1]=sourcePresentUs.load();values[2]=sourceZeroSync.load();}
+extern "C" __declspec(dllexport) void ReadFrameGenerationReShade(long long* values,int count){if(!values||count!=3)return;values[0]=ReShadeIntegration::active.load();values[1]=reshadeCaptures.load();values[2]=reshadeBypasses.load();}
 static void CaptureWorld(Shared& value,ID3D11Texture2D* image,DXGI_FORMAT format){
     if(!value.captureState){
         ComPtr<ID3D11Device1> device1;Check(value.source.As(&device1),"capture device1");Check(value.context.As(&value.captureContext),"capture context1");
@@ -162,9 +192,10 @@ static void __stdcall BeforeUI(int event){
 }
 extern "C" __declspec(dllexport) void* GetFrameGenerationRenderEvent(){return reinterpret_cast<void*>(BeforeUI);}
 struct Presenter{
+    PresentationCadence cadencePolicy;
     HWND window{};std::shared_ptr<Shared> source;
     ComPtr<ID3D11Device> device;ComPtr<ID3D11Device1> device1;ComPtr<ID3D11DeviceContext> context;
-    ComPtr<IDXGISwapChain> swap;ComPtr<ID3D11Texture2D> back,input,finalImage,opened[3],openedFinal[3];
+    ComPtr<IDXGISwapChain> swap,nativeSwap;ComPtr<ID3D11Texture2D> back,input,finalImage,opened[3],openedFinal[3];
     ComPtr<ID3D11ShaderResourceView> finalViews[3],inputSrv,finalSrv;
     ComPtr<IDXGIKeyedMutex> mutexes[3];ComPtr<ID3D11RenderTargetView> inputView;
     ComPtr<ID3D11ShaderResourceView> views[3];ComPtr<ID3D11VertexShader> vs;ComPtr<ID3D11PixelShader> ps,uiPS;
@@ -184,11 +215,16 @@ struct Presenter{
         window=CreateWindowExW(WS_EX_LAYERED|WS_EX_TRANSPARENT|WS_EX_NOACTIVATE|WS_EX_TOOLWINDOW,L"KOEFrameGeneration",L"KOE generated frames",WS_POPUP,0,0,source->desc.Width,source->desc.Height,nullptr,nullptr,wc.hInstance,nullptr);
         if(!window)throw std::runtime_error("presentation window");SetLayeredWindowAttributes(window,0,255,LWA_ALPHA);
         overlayWindow=window;
+        ReShadeIntegration::ownWindow=window;
         ComPtr<IDXGIFactory> factory;Check(adapter->GetParent(IID_PPV_ARGS(&factory)),"presentation factory");
         DXGI_SWAP_CHAIN_DESC sd{};sd.BufferDesc.Width=source->desc.Width;sd.BufferDesc.Height=source->desc.Height;sd.BufferDesc.Format=DXGI_FORMAT_R8G8B8A8_UNORM;
         sd.SampleDesc.Count=1;sd.BufferUsage=DXGI_USAGE_RENDER_TARGET_OUTPUT;sd.BufferCount=2;sd.OutputWindow=window;sd.Windowed=TRUE;sd.SwapEffect=DXGI_SWAP_EFFECT_FLIP_DISCARD;
         HRESULT swapResult=factory->CreateSwapChain(device.Get(),&sd,&swap);
         if(FAILED(swapResult)){sd.SwapEffect=DXGI_SWAP_EFFECT_DISCARD;Check(factory->CreateSwapChain(device.Get(),&sd,&swap),"presentation swap chain");}
+        if(ReShadeIntegration::active.load()){
+            nativeSwap=ReShadeIntegration::NativeSwap();
+            if(!nativeSwap)throw std::runtime_error("ReShade private presentation swap chain unavailable");
+        }
         factory->MakeWindowAssociation(window,DXGI_MWA_NO_ALT_ENTER|DXGI_MWA_NO_WINDOW_CHANGES);
         ComPtr<IDXGIDevice1> latency;if(SUCCEEDED(device.As(&latency))){latency->SetMaximumFrameLatency(3);latency->SetGPUThreadPriority(7);}
         MONITORINFOEXW monitor{};monitor.cbSize=sizeof(monitor);DEVMODEW mode{};mode.dmSize=sizeof(mode);
@@ -267,7 +303,13 @@ float4 main(float4 position:SV_Position):SV_Target{
             if(!auditDone&&auditIndex==3&&!auditDirectory.empty())Snapshot(back.Get(),auditComposed);
 #endif
         }else context->CopyResource(back.Get(),texture);
-        HRESULT hr=originalPresent(swap.Get(),1,0);Check(hr,"generated presentation");return hr==S_OK;
+        // External OSD hooks run after composition, on both real and generated
+        // frames. The worker's ownPresent guard prevents recursive capture;
+        // the ReShade native chain still avoids a second effects/UI pass.
+        struct PresentationScope{int previous;PresentationScope(int kind):previous(presentationKind){presentationKind=kind;}~PresentationScope(){presentationKind=previous;}} scope(midpoint?2:1);
+        HRESULT hr=FinalPresentation::Present(swap.Get(),nativeSwap.Get(),1,0);
+        if(nativeSwap)reshadeBypasses++;
+        Check(hr,"generated presentation");return hr==S_OK;
     }
     void Process(int index,double timestamp,double sourceInterval,std::uint64_t serial){
         if(mutexes[index]->AcquireSync(1,2000)!=S_OK)throw std::runtime_error("worker mutex acquire timeout/failure");
@@ -296,7 +338,7 @@ float4 main(float4 position:SV_Position):SV_Target{
 #endif
             ShowWindow(window,SW_HIDE);return;}
         Show();
-        if(ticket->eligible){
+        if(cadencePolicy.Midpoint(interval,refreshInterval,ticket->eligible,adaptiveCadence.load())){
             midPresented=Present(fruc->Output(),true);
             auto until=Clock::now()+std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(std::max(0.0,interval*.5-refreshInterval)));
             while(Clock::now()<until&&!stopWorker.load()&&Visible()){
@@ -346,6 +388,7 @@ extern "C" __declspec(dllexport) int InitializeFrameGeneration(const wchar_t* dl
         auditEpoch=Seconds();
 #endif
         HMODULE self{};if(!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS|GET_MODULE_HANDLE_EX_FLAG_PIN,reinterpret_cast<LPCWSTR>(&InitializeFrameGeneration),&self))throw std::runtime_error("pin presentation module");
+        ReShadeIntegration::Start(self,&CaptureReShadeFinal);
         WNDCLASSW wc{};wc.lpfnWndProc=DefWindowProcW;wc.hInstance=GetModuleHandleW(nullptr);wc.lpszClassName=L"KOEFrameProbe";RegisterClassW(&wc);
         HWND window=CreateWindowW(wc.lpszClassName,L"",WS_POPUP,0,0,64,64,nullptr,nullptr,wc.hInstance,nullptr);if(!window)throw std::runtime_error("probe window");
         DXGI_SWAP_CHAIN_DESC sd{};sd.BufferDesc.Width=64;sd.BufferDesc.Height=64;sd.BufferDesc.Format=DXGI_FORMAT_R8G8B8A8_UNORM;sd.SampleDesc.Count=1;sd.BufferUsage=DXGI_USAGE_RENDER_TARGET_OUTPUT;sd.BufferCount=1;sd.OutputWindow=window;sd.Windowed=TRUE;
@@ -361,6 +404,7 @@ extern "C" __declspec(dllexport) void SetFrameGeneration(int on,int scene){
     if((previous&&scene==0)||(wasEnabled&&!next)){std::lock_guard<std::mutex> lock(stateMutex);shared.reset();HWND window=overlayWindow.load();if(window)ShowWindowAsync(window,SW_HIDE);}
     if(wakeEvent)SetEvent(wakeEvent);
 }
+extern "C" __declspec(dllexport) void SetAdaptiveFrameCadence(int on){adaptiveCadence=on!=0;}
 extern "C" __declspec(dllexport) void InvalidateFrameGenerationHistory(){
     std::lock_guard<std::mutex> lock(stateMutex);shared.reset();
     HWND window=overlayWindow.load();if(window)ShowWindowAsync(window,SW_HIDE);

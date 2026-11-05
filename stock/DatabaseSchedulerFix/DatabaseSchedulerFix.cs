@@ -57,7 +57,7 @@ namespace DatabaseSchedulerFix
             }catch{h.UnpatchAll(Id);throw;}
         }
         static void Before(out long __state){__state=Stopwatch.GetTimestamp();}
-        internal static float FrameBudget(float original){return Math.Max(original,.008f);}
+        internal static float FrameBudget(float original){return KerbalOverEngineering.Options.LoadingResources.FrameBudget(original,Application.targetFrameRate,Screen.currentResolution.refreshRate);}
         static float GetFrameBudget(){return frameBudget ? FrameBudget(LoadingScreen.minFrameTime) : LoadingScreen.minFrameTime;}
         static bool CompletedChild(IEnumerator routine)
         {
@@ -71,9 +71,10 @@ namespace DatabaseSchedulerFix
         {
             if(draining || !childWaits)return;
             try{
-                draining=true;int count=0;
-                while(__result&&CompletedChild(__instance)&&Stopwatch.GetTimestamp()-__state<Stopwatch.Frequency*.008&&count<256){
-                    CompletedChildWaits++;count++;__result=__instance.MoveNext();
+                draining=true;double budget=Stopwatch.Frequency*GetFrameBudget();
+                if(double.IsNaN(budget)||double.IsInfinity(budget)||budget<=0)return;
+                while(__result&&CompletedChild(__instance)&&Stopwatch.GetTimestamp()-__state<budget){
+                    CompletedChildWaits++;__result=__instance.MoveNext();
                 }
             }finally{draining=false;}
         }

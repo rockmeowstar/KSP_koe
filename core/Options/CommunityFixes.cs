@@ -39,7 +39,7 @@ namespace KerbalOverEngineering.Options
             switch (name)
             {
                 case "OptimizedModuleRaycasts": return HasActualPatch("ModuleEngines", "EngineExhaustDamage");
-                case "ExpansionBundlePreload": return HasActualPatch("ExpansionsLoader", "StartLoad", "KSPCommunityFixes");
+                case "ExpansionBundlePreload": return HasActualPatch("Expansions.ExpansionsLoader", "StartLoad", "KSPCommunityFixes");
                 case "ScatterDistribution": return HasActualPatch("PQSLandControl", "OnVertexBuildHeight");
                 default: throw new NotSupportedException("Unknown compatibility target " + name);
             }
@@ -96,6 +96,21 @@ namespace KerbalOverEngineering.Options
         {
             return key == "Stock.DdsDirectUpload" || key == "Stock.DdsPrefetch" || key == "Stock.PngPipeline" ||
                 key == "Stock.DatabaseChildWaitDrain" || key == "Stock.DatabaseReadyAsyncDrain" || key == "Stock.DatabaseFrameBudget";
+        }
+        // This is a first-run preference, not a permanent availability guard.
+        // Inspect replacement capabilities in the installed build before its
+        // patches initialize; an older build without that class keeps KOE on.
+        // Users can opt back in if they disabled the upstream replacement.
+        public static string DefaultReason(string key)
+        {
+            var assembly = InstalledAssembly;
+            if (assembly == null) return null;
+            string type = null;
+            if (ReplacesStockLoader(key)) type = "Performance.KSPCFFastLoader";
+            else if (key == "Stock.ExhaustSync") type = "Performance.OptimizedModuleRaycasts";
+            else if (key == "Stock.ExpansionBufferReuse" || key == "Stock.DlcLz4Cache" || key == "Stock.DlcEarlyPreparation") type = "Performance.ExpansionBundlePreload";
+            return type != null && assembly.GetType("KSPCommunityFixes." + type) != null ?
+                "installed KSPCommunityFixes includes " + type.Substring(type.LastIndexOf('.') + 1) + "; enable KOE only if that upstream patch is disabled" : null;
         }
         public static string Reason(string key)
         {

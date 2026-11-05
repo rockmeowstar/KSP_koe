@@ -18,6 +18,11 @@ New-Item -ItemType Directory -Force "$taskOutput\unknown" | Out-Null
 if($LASTEXITCODE -ne 0){throw 'Unknown API fixture compilation failed'}
 & "$taskOutput\CompatibilityTests.exe" "$taskOutput\unknown\KSPCommunityFixes.dll" unknown
 if($LASTEXITCODE -ne 0){throw 'Unknown API compatibility failed'}
+New-Item -ItemType Directory -Force "$taskOutput\legacy" | Out-Null
+& $taskCsc /nologo /optimize+ /define:LEGACY_REPLACEMENTS /target:library "/reference:$taskOutput\0Harmony.dll" "/out:$taskOutput\legacy\KSPCommunityFixes.dll" "$PSScriptRoot\CommunityFixesFixture.cs"
+if($LASTEXITCODE -ne 0){throw 'Legacy replacement fixture compilation failed'}
+& "$taskOutput\CompatibilityTests.exe" "$taskOutput\legacy\KSPCommunityFixes.dll" legacy
+if($LASTEXITCODE -ne 0){throw 'Legacy version default policy failed'}
 & $taskCsc /nologo /optimize+ "/out:$taskOutput\CoverageGeometryTests.exe" "$taskRoot\mod\EnvironmentalVisualEnhancements\CloudLoopFix\CoverageVisibility.cs" "$PSScriptRoot\CoverageGeometryTests.cs"
 if($LASTEXITCODE -ne 0){throw 'Coverage geometry tests compilation failed'}
 & "$taskOutput\CoverageGeometryTests.exe"

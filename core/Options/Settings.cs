@@ -26,7 +26,7 @@ namespace KerbalOverEngineering.Options
                     try
                     {
                         var support = new Support();
-                        store = new OptionStore(ConfigPath, support.Check);
+                        store = new OptionStore(ConfigPath, support.Check, feature => CommunityFixes.DefaultReason(feature.Key));
                         Debug.Log("[KOE Runtime] " + RuntimeCompatibility.Description);
                         Debug.Log("[KOE Options] " + (store.Created ? "Generated " : "Read ") + ConfigPath);
                         foreach (Feature feature in Catalog.Features)
@@ -47,7 +47,7 @@ namespace KerbalOverEngineering.Options
         {
             readonly Assembly[] assemblies = AppDomain.CurrentDomain.GetAssemblies();
             readonly Dictionary<string,string> hashes = new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase);
-            string FileProblem(string relative,string expected)
+            string FileProblem(string relative,params string[] expected)
             {
                 string path=Path.Combine(KSPUtil.ApplicationRootPath,relative);
                 string hash;
@@ -57,7 +57,7 @@ namespace KerbalOverEngineering.Options
                     using(var sha=SHA256.Create())using(var stream=File.OpenRead(path))hash=BitConverter.ToString(sha.ComputeHash(stream)).Replace("-","").ToLowerInvariant();
                     hashes[path]=hash;
                 }
-                return hash==expected ? null : relative+" identity is unverified";
+                return expected.Contains(hash) ? null : relative+" identity is unverified";
             }
             string AssemblyProblem(string name, string mvid = null)
             {
@@ -91,11 +91,27 @@ namespace KerbalOverEngineering.Options
                         if (feature.Name == "TexturePrefetch" || feature.Name == "DdsDirectUpload") return AssemblyProblem("Utils", "752c32c2-9c32-40be-bad9-8a27f80a0a26");
                         return feature.Requirement == "EveD3D11" ? Direct3D() : null;
                     case "Parallax":
+                        var parallax=assemblies.FirstOrDefault(a=>a.GetName().Name=="ParallaxContinued");
+                        if(parallax!=null&&parallax.ManifestModule.ModuleVersionId==new Guid("4695d1cd-8876-416d-98c8-24f821987e26"))
+                        {
+                            problem=FileProblem("GameData/ParallaxContinued/Plugins/ParallaxContinued.dll","90ec6a3e3725170536f1b21c67c912329c68d358ca7f88e45f43ed7c3949f28f");
+                            if(problem!=null)return problem;
+                            // 1.1.0 removed the old RGB conversion and DDS parser.
+                            // Retain the original upstream operations and ownership.
+                            switch(feature.Name)
+                            {
+                                case "GpuSkyboxCopy": return "Parallax 1.1.0 already copies skybox faces on GPU";
+                                case "LaunchTextureRetention": return "Parallax 1.1.0 already retains textures during body restarts";
+                                case "BiomeRgbPreparation": return "Parallax 1.1.0 uploads biome indices directly; RGB expansion removed";
+                                case "DdsDirectUpload":
+                                    return FileProblem("GameData/KSPTextureLoader/Plugins/KSPTextureLoader.dll","b12096a345261cbf704c6702fd4a0673d4b68aacb73e564a0c43072eca85bfce")??"Parallax 1.1.0 uses KSPTextureLoader native DDS uploads";
+                            }
+                        }
                         return AssemblyProblem("ParallaxContinued", "1ecb998e-ce0b-4bfd-970f-fe0fa2d99def") ??
                             (feature.Name == "BiomeRgbPreparation" ? AssemblyProblem("Kopernicus", "7fd28341-4f5a-4edf-b5f4-35706c820e0e") : null);
                     case "Firefly":
                         return AssemblyProblem("Firefly") ?? AssemblyProblem("FireflyAPI") ??
-                            FileProblem("GameData/Firefly/Plugins/Firefly.dll","e312eede3f5f4837aadae302c721f8cbd67222b8722a5f01a5899f29dc288829") ??
+                            FileProblem("GameData/Firefly/Plugins/Firefly.dll","e312eede3f5f4837aadae302c721f8cbd67222b8722a5f01a5899f29dc288829","91e11e3fbc41c3e56cf40745e1af7360811cf1892cf18d3bda8e4db3b9eb35ba") ??
                             FileProblem("GameData/FireflyAPI/Plugins/FireflyAPI.dll","b9fd1f72f3dd3fce34caf1ff424172af881be5e2262117fdec88268d7ebe637d") ??
                             FileProblem("GameData/Firefly/Assets/fireflybundle.ksp","abe1db2b133decab1c879ac03660dee919b3e245b6c659883a0ddd527ce6be28") ??
                             (feature.Name == "DepthLighting" ? Direct3D() : null);

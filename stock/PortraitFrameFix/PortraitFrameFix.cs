@@ -30,8 +30,9 @@ namespace KerbalOverEngineering.Portraits
                     if (method == null || method.ReturnType != typeof(IEnumerator)) throw new MissingMethodException(type.Name, "kerbalAvatarUpdateCycle");
                     harmony.Patch(method, postfix: new HarmonyMethod(typeof(PortraitFrameFix), "Wrap"));
                 }
-                harmony.Patch(AccessTools.Method(typeof(KerbalPortrait), "RectContainment_OnContainmentChanged"),
-                    postfix: new HarmonyMethod(typeof(PortraitFrameFix), "PartialVisible"));
+                if (KerbalOverEngineering.Options.Settings.Enabled("Stock.PortraitHiddenCull"))
+                    harmony.Patch(AccessTools.Method(typeof(KerbalPortrait), "RectContainment_OnContainmentChanged"),
+                        postfix: new HarmonyMethod(typeof(PortraitFrameFix), "PartialVisible"));
                 Debug.Log("[PortraitFrameFix] enabled: visible portraits every frame, hidden portraits no render; original cameras retained");
             }
             catch (Exception error)

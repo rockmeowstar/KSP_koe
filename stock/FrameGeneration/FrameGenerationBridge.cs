@@ -15,6 +15,7 @@ namespace KoeFrameGeneration
         [DllImport("kernel32",CharSet=CharSet.Ansi,ExactSpelling=true)]static extern IntPtr GetProcAddress(IntPtr module,string name);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl,CharSet=CharSet.Unicode)]delegate int Initialize(string library);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]delegate void Set(int on,int scene);
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]delegate void Toggle(int on);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]delegate void Action();
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]delegate void Read([Out]long[] stats,int count);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]delegate void ReadUI([Out]long[] stats);
@@ -22,6 +23,10 @@ namespace KoeFrameGeneration
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]delegate IntPtr Pointer();
         Initialize InitializeFrameGeneration;Set SetFrameGeneration;Action InvalidateFrameGenerationHistory,StopFrameGeneration;
         Read ReadFrameGeneration;ReadUI ReadFrameGenerationUI;Integer GetFrameGenerationCaptureFormat;
+        Read ReadFrameGenerationPresentation;
+        Read ReadFrameGenerationReShade;
+        readonly long[] reshade=new long[3];
+        readonly long[] presentation=new long[3],lastPresentation=new long[3];
         Pointer GetFrameGenerationError,GetFrameGenerationRenderEvent;
         static T Function<T>(IntPtr module,string name)where T:class
         {
@@ -67,10 +72,14 @@ namespace KoeFrameGeneration
                 GetFrameGenerationCaptureFormat=Function<Integer>(module,"GetFrameGenerationCaptureFormat");
                 GetFrameGenerationError=Function<Pointer>(module,"GetFrameGenerationError");
                 GetFrameGenerationRenderEvent=Function<Pointer>(module,"GetFrameGenerationRenderEvent");
+                if(GetProcAddress(module,"ReadFrameGenerationPresentation")!=IntPtr.Zero)ReadFrameGenerationPresentation=Function<Read>(module,"ReadFrameGenerationPresentation");
+                if(GetProcAddress(module,"ReadFrameGenerationReShade")!=IntPtr.Zero)ReadFrameGenerationReShade=Function<Read>(module,"ReadFrameGenerationReShade");
+                Function<Toggle>(module,"SetAdaptiveFrameCadence")(KerbalOverEngineering.Options.Settings.Enabled("Rendering.AdaptiveFrameCadence")?1:0);
                 // The direct-flow backend does not read this path, but the native
                 // shared initializer still normalizes it to an absolute path.
                 int status=InitializeFrameGeneration(folder);
                 if(status!=0)throw new InvalidOperationException("native init "+status+": "+Marshal.PtrToStringAnsi(GetFrameGenerationError()));
+                if(ReadFrameGenerationReShade!=null){ReadFrameGenerationReShade(reshade,reshade.Length);Debug.Log("[KoeFrameGeneration] ReShade API integration="+(reshade[0]!=0));}
                 initialized=true;trace=Environment.GetEnvironmentVariable("KOE_FRAME_GENERATION_TRACE");last=Time.realtimeSinceStartup;next=last+2;DontDestroyOnLoad(gameObject);
                 renderEvent=GetFrameGenerationRenderEvent();Camera.onPreCull+=ConfigureUI;GameEvents.onGameSceneLoadRequested.Add(ClearUI);
                 Debug.Log("[KoeFrameGeneration] enabled DX11 GPU interpolation; F10 toggles; base rendering/physics unchanged; presentation counters are submissions, not monitor scanout");
@@ -100,11 +109,19 @@ namespace KoeFrameGeneration
             ReadFrameGeneration(values,values.Length);ReadFrameGenerationUI(ui);float now=Time.realtimeSinceStartup;double seconds=now-last;
             string row="{\"t\":"+F(now)+",\"scene\":\""+HighLogic.LoadedScene+"\",\"enabled\":"+values[0]+",\"allowed\":"+values[1]+",\"baseFPS\":"+F(frames/seconds)+",\"capturedFPS\":"+F((values[2]-previous[2])/seconds)+",\"generated\":"+values[3]+",\"realPresents\":"+values[4]+",\"generatedPresents\":"+values[5]+",\"submittedPresentFPS\":"+F((values[4]-previous[4]+values[5]-previous[5])/seconds)+",\"skipped\":"+values[6]+",\"repeated\":"+values[7]+",\"errors\":"+values[8]+",\"workerMs\":"+F(values[9]/1000.0)+"}\n";
             row=row.TrimEnd('\r','\n','}')+",\"fixedUpdateHz\":"+F(fixedTicks/seconds)+",\"cleanCopies\":"+ui[0]+",\"missingClean\":"+ui[1]+",\"captureFormats\":"+GetFrameGenerationCaptureFormat()+"}\n";
+            if(ReadFrameGenerationPresentation!=null){
+                ReadFrameGenerationPresentation(presentation,presentation.Length);
+                long calls=presentation[0]-lastPresentation[0];
+                row=row.TrimEnd('\r','\n','}')+",\"mainPresentWaitMs\":"+F(calls>0?(presentation[1]-lastPresentation[1])/(1000.0*calls):0)+",\"zeroSyncPresents\":"+(presentation[2]-lastPresentation[2])+",\"qualityVsync\":"+QualitySettings.vSyncCount+"}\n";
+                Array.Copy(presentation,lastPresentation,presentation.Length);
+            }
+            if(ReadFrameGenerationReShade!=null){ReadFrameGenerationReShade(reshade,reshade.Length);row=row.TrimEnd('\r','\n','}')+",\"reshadeActive\":"+reshade[0]+",\"reshadeCaptures\":"+reshade[1]+",\"reshadePrivatePresents\":"+reshade[2]+"}\n";}
             if(!string.IsNullOrEmpty(trace))File.AppendAllText(trace,row);
             if(values[8]>previous[8])Debug.LogError("[KoeFrameGeneration] "+Marshal.PtrToStringAnsi(GetFrameGenerationError()));
             Array.Copy(values,previous,values.Length);frames=0;fixedTicks=0;last=now;next=now+2;
         }
         public void FixedUpdate(){if(initialized)fixedTicks++;}
         public void OnApplicationQuit(){if(initialized){Camera.onPreCull-=ConfigureUI;GameEvents.onGameSceneLoadRequested.Remove(ClearUI);ClearUI(HighLogic.LoadedScene);StopFrameGeneration();initialized=false;}}
+        public void OnDestroy(){OnApplicationQuit();}
     }
 }

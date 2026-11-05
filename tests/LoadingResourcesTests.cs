@@ -16,11 +16,16 @@ static class LoadingResourcesTests
                     Check(sum <= free / 8 && sum <= memory / 16, "Aggregate queues respect available and installed physical memory");
                     Check(policy.Workers >= 1 && policy.Workers <= cores, "Worker count respects actual logical processors");
                     Check(policy.DecodeWindow == policy.Workers, "Decode concurrency follows processor and memory limits");
+                    Check(policy.NoiseCoordinateLimit>=0 && policy.NoiseCoordinateLimit*128L<=policy.NoiseBudget/2,"Noise coordinate limit respects detected memory budget");
                     if (free == 0) Check(sum == 0, "Unknown/unavailable RAM disables speculative allocation");
                 }
             var small = new LoadingResources(4, 8L << 30, 2L << 30); var large = new LoadingResources(20, 64L << 30, 32L << 30);
             Check(large.Workers > small.Workers && large.PngBudget > small.PngBudget, "Larger hardware receives more workers and budget");
             var detected = LoadingResources.Current;
+            Check(LoadingResources.FrameBudget(.001f,120,75)==1f/120,"Loading budget follows requested frame rate");
+            Check(LoadingResources.FrameBudget(.001f,-1,144)==1f/144,"Uncapped loading follows display rate");
+            Check(LoadingResources.FrameBudget(.02f,120,75)==.02f,"Keep a larger stock loading budget");
+            Check(LoadingResources.FrameBudget(.001f,-1,0)==.001f,"Unknown rates preserve stock budget");
             Console.WriteLine("LOADING_RESOURCES_PASS checks=" + checks + "; detectedWorkers=" + detected.Workers + "; PNGMiB=" + detected.PngBudget / (1024 * 1024)); return 0;
         }
         catch (Exception error) { Console.Error.WriteLine(error); return 1; }

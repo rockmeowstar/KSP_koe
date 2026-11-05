@@ -14,7 +14,14 @@ static class CompatibilityTests
         {
             Check(!CommunityFixes.Present && CommunityFixes.Ready, "No KSPCF: normal initialization");
             Check(CommunityFixes.Reason("Stock.ExhaustSync") == null, "No KSPCF: exhaust available");
+            Check(CommunityFixes.DefaultReason("Stock.ExhaustSync") == null, "Absent upstream leaves default enabled");
             var fixture = Assembly.LoadFile(Path.GetFullPath(args[0]));
+            if (args.Length > 1 && args[1] == "legacy")
+            {
+                foreach (var key in new[] { "Stock.ExhaustSync", "Stock.PngPipeline", "Stock.DdsDirectUpload", "Stock.DlcEarlyPreparation", "Stock.PqsNoisePreparation" })
+                    Check(CommunityFixes.DefaultReason(key) == null, "Older upstream without replacement keeps default: " + key);
+                Console.WriteLine("LEGACY_UPSTREAM_DEFAULTS_PASS checks=" + checks); return 0;
+            }
             if (args.Length > 1)
             {
                 Check(CommunityFixes.Present && !CommunityFixes.Ready, "Unknown API is not treated as absent");
@@ -24,6 +31,9 @@ static class CompatibilityTests
                 Console.WriteLine("UNKNOWN_COMPATIBILITY_API_PASS checks=" + checks); return 0;
             }
             var main = fixture.GetType("KSPCommunityFixes.KSPCommunityFixes");
+            foreach (var key in new[] { "Stock.ExhaustSync", "Stock.PngPipeline", "Stock.DdsDirectUpload", "Stock.DlcEarlyPreparation" })
+                Check(CommunityFixes.DefaultReason(key) != null, "Installed replacement defaults off before initialization: " + key);
+            Check(CommunityFixes.DefaultReason("Stock.PortraitHiddenCull") == null && CommunityFixes.DefaultReason("EVE.DdsDirectUpload") == null && CommunityFixes.DefaultReason("Stock.PqsNoisePreparation") == null, "Complementary fixes retain defaults; scatter bugfix is not noise preparation");
             Assembly.Load("Assembly-CSharp"); Assembly.Load("0Harmony");
             var setter = fixture.GetType("KSPCommunityFixes.FixtureControl").GetMethod("SetPatch");
             Action<string, bool> setPatch = (name, value) => setter.Invoke(null, new object[] { name, value });

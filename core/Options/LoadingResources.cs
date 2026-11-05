@@ -7,6 +7,8 @@ namespace KerbalOverEngineering.Options
     {
         public readonly int Workers, DecodeWindow;
         public readonly long DdsBudget, EveBudget, PngBudget, BiomeBudget, NoiseBudget;
+        // Conservative dictionary/list accounting; remaining half stores values.
+        public int NoiseCoordinateLimit { get { return (int)Math.Min(int.MaxValue, NoiseBudget / 2 / 128); } }
         static LoadingResources current;
         public static LoadingResources Current { get { return current ?? (current = Detect()); } }
         public LoadingResources(int processors, long totalMemory, long availableMemory)
@@ -19,6 +21,11 @@ namespace KerbalOverEngineering.Options
             PngBudget = pool / 2;
             Workers = pool == 0 ? 1 : (int)Math.Max(1, Math.Min(processors, pool / (1024 * 1024)));
             DecodeWindow = Workers;
+        }
+        public static float FrameBudget(float original, int requestedRate, int displayRate)
+        {
+            int rate = requestedRate > 0 ? requestedRate : displayRate;
+            return rate > 0 ? Math.Max(original, 1f / rate) : original;
         }
         [StructLayout(LayoutKind.Sequential)]
         struct MemoryStatus

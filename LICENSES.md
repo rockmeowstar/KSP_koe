@@ -23,5 +23,7 @@ Firefly IdleFix - MIT
 Parallax Continued MenuSkyboxFix - MIT
 MinHook and HDE - BSD-2-Clause
 NVIDIA Optical Flow interface headers - MIT
+ReShade API headers - MIT (BSD-3-Clause OR MIT; MIT option selected)
+External ReShade runtime - upstream terms (not redistributed)
 External NVIDIA driver - NVIDIA driver terms (not redistributed)
 External KSP, Unity and mod dependencies - respective upstream licenses (not redistributed)

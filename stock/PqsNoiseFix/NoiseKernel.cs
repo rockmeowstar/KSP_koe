@@ -15,8 +15,10 @@ namespace PqsNoiseFix
     public static class NoiseKernel
     {
         const string Id="local.koe.pqs-noise-preparation";
-        const int MaxPoints=300000;
-        static long MaxValuesBytes { get { return KerbalOverEngineering.Options.LoadingResources.Current.NoiseBudget; } }
+        // Reserve half the hardware-derived budget for coordinates and indexing.
+        // 128 bytes is conservative accounting per point, not a planet-size limit.
+        static int MaxPoints { get { return KerbalOverEngineering.Options.LoadingResources.Current.NoiseCoordinateLimit; } }
+        static long MaxValuesBytes { get { return KerbalOverEngineering.Options.LoadingResources.Current.NoiseBudget/2; } }
         internal struct Point:IEquatable<Point>
         {
             public long X,Y,Z;
@@ -83,18 +85,23 @@ namespace PqsNoiseFix
                 foreach(var callback in callbacks)h.Patch(callback,transpiler:new HarmonyMethod(typeof(NoiseKernel),"Callbacks"));
                 h.Patch(init,prefix:new HarmonyMethod(typeof(NoiseKernel),"Begin"),transpiler:new HarmonyMethod(typeof(NoiseKernel),"Init"),finalizer:new HarmonyMethod(typeof(NoiseKernel),"End"));
                 h.Patch(AccessTools.DeclaredMethod(typeof(PQS),"BuildQuad"),prefix:new HarmonyMethod(typeof(NoiseKernel),"CheckCompatibility"));
-                Emit("PQS_NOISE_MODE","mode="+mode+"; 1=control; 2=bit oracle; 3=prepared; workers="+Environment.ProcessorCount+"; pointLimit="+MaxPoints+"; valueBudgetBytes="+MaxValuesBytes);
+                Emit("PQS_NOISE_MODE","mode="+mode+"; 1=control; 2=bit oracle; 3=prepared; workerLimit="+KerbalOverEngineering.Options.LoadingResources.Current.Workers+"; pointLimit="+MaxPoints+"; valueBudgetBytes="+MaxValuesBytes);
             }catch{h.UnpatchAll(Id);mode=0;throw;}
         }
         static bool KnownKopernicus(MethodInfo original,HarmonyLib.Patch patch)
         {
             var method=patch.PatchMethod;
             if(original.DeclaringType!=typeof(PQSLandControl)||original.Name!="OnVertexBuildHeight"||patch.owner!="Kopernicus"||method==null||
-                method.DeclaringType.FullName!="Kopernicus.PQSLandControl_OnVertexBuildHeight"||method.Name!="Transpiler"||
-                method.Module.ModuleVersionId!=new Guid("7fd28341-4f5a-4edf-b5f4-35706c820e0e")||Harmony.GetPatchInfo(method)!=null)return false;
+                method.Name!="Transpiler"||Harmony.GetPatchInfo(method)!=null)return false;
+            string expected;
+            if(method.DeclaringType.FullName=="Kopernicus.PQSLandControl_OnVertexBuildHeight"&&method.Module.ModuleVersionId==new Guid("7fd28341-4f5a-4edf-b5f4-35706c820e0e"))
+                expected="968c7f371a376d5d22fd37f6e8891aeaf495cf9dd6f98bcc7b17c1935e42a9ff";
+            else if(method.DeclaringType.FullName=="Kopernicus.Patches.PQSLandControl_OnVertexBuildHeight"&&method.Module.ModuleVersionId==new Guid("6e34390c-d72e-4fc1-a3ad-5b4505f41122"))
+                expected="92f59f6de98fa7e7b65f57f686552a8b2ce84d29e0beb24ca7cc4520d317ea58";
+            else return false;
             bool valid;if(knownKopernicus.TryGetValue(method,out valid))return valid;
             using(var sha=SHA256.Create())using(var file=File.OpenRead(method.Module.Assembly.Location))
-                valid=BitConverter.ToString(sha.ComputeHash(file)).Replace("-","").ToLowerInvariant()=="968c7f371a376d5d22fd37f6e8891aeaf495cf9dd6f98bcc7b17c1935e42a9ff";
+                valid=BitConverter.ToString(sha.ComputeHash(file)).Replace("-","").ToLowerInvariant()==expected;
             knownKopernicus[method]=valid;return valid;
         }
         static bool Compatible()
@@ -201,7 +208,7 @@ namespace PqsNoiseFix
                 batch.Generators=accepted.ToArray();var kernels=unique.ToArray();batch.Kernels=kernels.Length;long values=(long)batch.Points.Count*kernels.Length;
                 batch.Values=kernels.Select(s=>new double[batch.Points.Count]).ToArray();batch.Owners=new Dictionary<Simplex,int>();for(int i=0;i<batch.Generators.Length;i++)batch.Owners.Add(batch.Generators[i].Original,i);
                 batch.SnapshotSeconds=(Stopwatch.GetTimestamp()-start)/(double)Stopwatch.Frequency;start=Stopwatch.GetTimestamp();
-                int workers=Math.Max(1,Math.Min(64,Environment.ProcessorCount));var permField=AccessTools.Field(typeof(Simplex),"perm");
+                int workers=Math.Max(1,Math.Min(batch.Points.Count,KerbalOverEngineering.Options.LoadingResources.Current.Workers));var permField=AccessTools.Field(typeof(Simplex),"perm");
                 Parallel.For(0,workers,new ParallelOptions{MaxDegreeOfParallelism=workers},worker=>{
                     var copies=new Simplex[kernels.Length];for(int g=0;g<copies.Length;g++){copies[g]=(Simplex)clone.Invoke(kernels[g].Original,null);permField.SetValue(copies[g],(int[])kernels[g].Perm.Clone());}
                     int begin=(int)((long)batch.Points.Count*worker/workers),end=(int)((long)batch.Points.Count*(worker+1)/workers);

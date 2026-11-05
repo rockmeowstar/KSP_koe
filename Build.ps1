@@ -1,4 +1,4 @@
-param([string]$GamePath=$env:KSP_ROOT,[string]$ReleaseVersion='0.15.1')
+param([string]$GamePath=$env:KSP_ROOT,[string]$ReleaseVersion='0.15.2')
 $ErrorActionPreference='Stop'
 if($ReleaseVersion -notmatch '^\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?$'){throw 'Invalid release version'}
 if(-not $GamePath -or -not (Test-Path -LiteralPath (Join-Path $GamePath 'KSP_x64.exe'))){throw 'Specify -GamePath pointing to KSP, or set KSP_ROOT'}
@@ -44,12 +44,12 @@ $taskModules=@(
  @{Path='mod/Firefly/IdleFix';Name='FireflyIdleFix';Keys='Firefly.ZeroStrengthGate,Firefly.DepthLighting,Firefly.GlobalCommandDedup';Types='FireflyIdleFix.Bootstrap'},
  @{Path='mod/EnvironmentalVisualEnhancements/ShaderCorrectionGuards';Name='KoeCloudGuards';Keys='EVE.ShaderCorrectionGuards';Types='KerbalOverEngineering.CloudGuards.Bootstrap';Native='Cloud'},
  @{Path='stock/InstancedPointLights';Name='KoeInstancedPointLights';Keys='Rendering.InstancedPointLights';Types='KerbalOverEngineering.InstancedPointLights.Bootstrap';Native='Lights'},
- @{Path='stock/FrameGeneration';Name='KoeFrameGenerationBridge';Keys='Rendering.FrameGeneration';Types='KoeFrameGeneration.Bridge';Native='Frame'}
+ @{Path='stock/FrameGeneration';Name='KoeFrameGenerationBridge';Keys='Rendering.FrameGeneration,Rendering.AdaptiveFrameCadence';Types='KoeFrameGeneration.Bridge';Native='Frame'}
 )
 $taskNativeFiles=@{
  Cloud=@(@('KoeCloudGuard.dll','616f289df2a26ea15dbccdc8c6275ad76ca77805c96ae4661a2216b536cb2ccd'),@('base-guarded.koepatch','544be245373e4a7bc0dfa0df0a8254d4fb170738c61dcfc361afacb30bed9bee'),@('top-guarded.koepatch','97db0080cb6c833a317e746b465618a96ffb30f88ad80f31d28b649e80365131'))
  Lights=@(@('KSP_x64_Data/Plugins/KoeInstancedLights.dll','78f5ea8fd67cacfa5dd75241a542b5c4a3d71e581eb604333532cce17170193b'),@('GameData/KerbalOverEngineeringExperiments/InstancedLights/light0-ps.shdr','52f0befe1d3fa291a4bebef94502ef14c162f4a3d86cd579a87da9664249bef7'),@('GameData/KerbalOverEngineeringExperiments/InstancedLights/light0-vs.shdr','18f304a7ebaf6499cde707116f7cda855078b930ae59b750ed6b5b8a0c46e496'),@('GameData/KerbalOverEngineeringExperiments/InstancedLights/light1-ps.shdr','bddc54bcdf16b256e3fdc3eabf6ea7675717597293d40bbfc2deb397878e81c8'),@('GameData/KerbalOverEngineeringExperiments/InstancedLights/light1-vs.shdr','18f304a7ebaf6499cde707116f7cda855078b930ae59b750ed6b5b8a0c46e496'))
- Frame=,@('KSP_x64_Data/Plugins/KoeFrameGeneration.dll','e2d9ab5265e19de95e410b0c1a67e8261df6dead8601cea9ff3a71e869dc96a5')
+ Frame=,@('KSP_x64_Data/Plugins/KoeFrameGeneration.dll','e3f1ae840000c457834f81dfbc6ea1b813c1016a227b164bcc7bd9b45bf34db4')
 }
 foreach($taskModule in $taskModules){
  $taskName=$taskModule.Name
@@ -87,6 +87,7 @@ foreach($taskModule in $taskModules){
 Copy-Item -LiteralPath "$taskRoot\LICENSE","$taskRoot\LICENSES.md" -Destination $taskPackage
 New-Item -ItemType Directory -Force "$taskPackage\licenses" | Out-Null
 Copy-Item -Path "$taskRoot\licenses\*" -Destination "$taskPackage\licenses" -Force
+Copy-Item -LiteralPath "$taskRoot\third_party\reshade-api\LICENSE" -Destination "$taskPackage\licenses\ReShade-API.txt" -Force
 . "$taskRoot\core\Packaging.ps1"
 Write-KoeZip -SourceDirectory "$taskRoot\dist" -Destination "$taskRoot\dist\KerbalOverEngineering-$ReleaseVersion.zip"
 Write-KoeZip -SourceDirectory $taskRoot -Destination "$taskRoot\dist\KerbalOverEngineering-$ReleaseVersion-source.zip" -Paths @('core','stock','mod','third_party','tests','licenses','LICENSE','LICENSES.md','Build.ps1','Build-PointLights.ps1','artifacts/native-texture-production/NativeTextureEncoder.bin','.gitignore')

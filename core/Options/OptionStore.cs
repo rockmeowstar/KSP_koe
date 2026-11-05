@@ -8,16 +8,17 @@ namespace KerbalOverEngineering.Options
     public sealed class Feature
     {
         public readonly string Group, Name, Requirement, Parent;
+        public readonly bool DefaultEnabled;
         public string Key { get { return Group + "." + Name; } }
-        public Feature(string group, string name, string requirement, string parent)
-        { Group = group; Name = name; Requirement = requirement; Parent = parent; }
+        public Feature(string group, string name, string requirement, string parent, bool defaultEnabled = true)
+        { Group = group; Name = name; Requirement = requirement; Parent = parent; DefaultEnabled = defaultEnabled; }
     }
 
     public static class Catalog
     {
         public const int SchemaVersion = 1;
-        static Feature F(string group, string name, string requirement, string parent = null)
-        { return new Feature(group, name, requirement, parent); }
+        static Feature F(string group, string name, string requirement, string parent = null, bool defaultEnabled = true)
+        { return new Feature(group, name, requirement, parent, defaultEnabled); }
         public static readonly Feature[] Features = {
             F("Stock", "ExhaustSync", "Harmony"),
             F("Stock", "PropellantMessageCache", "Harmony"),
@@ -56,7 +57,8 @@ namespace KerbalOverEngineering.Options
             F("Firefly", "DepthLighting", "Firefly"),
             F("Firefly", "GlobalCommandDedup", "Firefly"),
             F("Rendering", "InstancedPointLights", "D3D11"),
-            F("Rendering", "FrameGeneration", "OpticalFlow")
+            F("Rendering", "FrameGeneration", "OpticalFlow"),
+            F("Rendering", "AdaptiveFrameCadence", "OpticalFlow", "Rendering.FrameGeneration")
         };
     }
 
@@ -66,12 +68,14 @@ namespace KerbalOverEngineering.Options
         readonly Dictionary<string, bool> requested = new Dictionary<string, bool>(StringComparer.Ordinal);
         readonly Dictionary<string, string> unavailable = new Dictionary<string, string>(StringComparer.Ordinal);
         readonly Dictionary<string, Feature> features = new Dictionary<string, Feature>(StringComparer.Ordinal);
+        readonly Func<Feature, string> defaultDisabledReason;
         public readonly string Path;
         public bool Created { get; private set; }
 
         // support returns null for a supported feature, otherwise a short reason.
-        public OptionStore(string path, Func<Feature, string> support)
+        public OptionStore(string path, Func<Feature, string> support, Func<Feature, string> defaultDisabledReason = null)
         {
+            this.defaultDisabledReason = defaultDisabledReason;
             Path = System.IO.Path.GetFullPath(path);
             foreach (Feature feature in Catalog.Features)
             {
@@ -97,9 +101,13 @@ namespace KerbalOverEngineering.Options
                 if (group != feature.Group)
                 { group = feature.Group; text.AppendLine(); text.AppendLine("[" + group + "]"); }
                 string reason;
-                bool enabled = !unavailable.TryGetValue(feature.Key, out reason);
+                bool supported = !unavailable.TryGetValue(feature.Key, out reason);
+                string upstream = defaultDisabledReason == null ? null : defaultDisabledReason(feature);
+                bool enabled = supported && feature.DefaultEnabled && upstream == null;
                 text.AppendLine("// Requires: " + feature.Requirement + (feature.Parent == null ? "" : "; " + feature.Parent));
-                if (!enabled) text.AppendLine("// Unavailable: " + reason.Replace('\r', ' ').Replace('\n', ' '));
+                if (!supported) text.AppendLine("// Unavailable: " + reason.Replace('\r', ' ').Replace('\n', ' '));
+                else if (upstream != null) text.AppendLine("// Default off: " + upstream.Replace('\r', ' ').Replace('\n', ' '));
+                else if (!feature.DefaultEnabled) text.AppendLine("// Experimental: disabled by default; enable explicitly for testing.");
                 text.AppendLine(feature.Name + " = " + (enabled ? "true" : "false"));
             }
             Directory.CreateDirectory(System.IO.Path.GetDirectoryName(Path));

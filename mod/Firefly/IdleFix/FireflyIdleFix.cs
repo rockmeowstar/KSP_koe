@@ -20,6 +20,10 @@ namespace FireflyIdleFix
     public sealed class Bootstrap : MonoBehaviour
     {
         const string PluginSha = "e312eede3f5f4837aadae302c721f8cbd67222b8722a5f01a5899f29dc288829";
+        // 1.0.6 keeps the same rendering bundle. Its envelope draw commands and
+        // strength/depth paths were compared against 1.0.5; only logging and
+        // null-safe override-config initialization changed in AtmoFxModule.
+        const string Plugin106Sha = "91e11e3fbc41c3e56cf40745e1af7360811cf1892cf18d3bda8e4db3b9eb35ba";
         const string BundleSha = "abe1db2b133decab1c879ac03660dee919b3e245b6c659883a0ddd527ce6be28";
         static readonly ConditionalWeakTable<AtmoFxModule, State> states = new ConditionalWeakTable<AtmoFxModule, State>();
         static PropertyInfo managerInstance;
@@ -49,7 +53,7 @@ namespace FireflyIdleFix
             try
             {
                 string root = Path.Combine(KSPUtil.ApplicationRootPath, "GameData/Firefly");
-                if (!Matches(typeof(AtmoFxModule).Assembly.Location, PluginSha) || !Matches(Path.Combine(root, "Assets/fireflybundle.ksp"), BundleSha))
+                if (!(Matches(typeof(AtmoFxModule).Assembly.Location, PluginSha) || Matches(typeof(AtmoFxModule).Assembly.Location, Plugin106Sha)) || !Matches(Path.Combine(root, "Assets/fireflybundle.ksp"), BundleSha))
                     throw new NotSupportedException("Firefly plugin/bundle identity mismatch");
                 Type manager = typeof(AtmoFxModule).Assembly.GetType("Firefly.CameraManager", true);
                 managerInstance = manager.GetProperty("Instance", BindingFlags.Public | BindingFlags.Static);

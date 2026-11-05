@@ -14,7 +14,7 @@ namespace KSPCommunityFixes
             switch (name)
             {
                 case "OptimizedModuleRaycasts": type = "ModuleEngines"; method = "EngineExhaustDamage"; break;
-                case "ExpansionBundlePreload": type = "ExpansionsLoader"; method = "StartLoad"; break;
+                case "ExpansionBundlePreload": type = "Expansions.ExpansionsLoader"; method = "StartLoad"; break;
                 case "ScatterDistribution": type = "PQSLandControl"; method = "OnVertexBuildHeight"; break;
                 case "FastLoader": type = "GameDatabase"; method = "SetupMainLoaders"; break;
                 default: throw new ArgumentException(name);
@@ -33,6 +33,7 @@ namespace KSPCommunityFixes
 #endif
     }
 }
+#if !LEGACY_REPLACEMENTS
 namespace KSPCommunityFixes.Performance
 {
     public static class KSPCFFastLoader { public static bool IsPatchEnabled { get; set; } }
@@ -40,3 +41,4 @@ namespace KSPCommunityFixes.Performance
     public sealed class ExpansionBundlePreload { }
 }
 namespace KSPCommunityFixes.BugFixes { public sealed class ScatterDistribution { } }
+#endif

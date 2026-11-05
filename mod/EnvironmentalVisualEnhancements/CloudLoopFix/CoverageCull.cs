@@ -21,6 +21,7 @@ namespace CloudLoopFix
         static FieldInfo mapType,mapMask,mapTexture,flowMap,detailTex,painterTiles,painterMasks,mainMaterial,reflectionMaterial,isReflection;
         static Func<Vector3,Vector2> getUV;
         static bool wide;
+        static bool flowCoverageIndependent;
         static readonly List<int> remove=new List<int>();
         static readonly Dictionary<object,bool> decisions=new Dictionary<object,bool>();
         sealed class Binding{public object Wrapper;public Texture2D Texture;}
@@ -56,6 +57,7 @@ namespace CloudLoopFix
                     flowMap=AccessTools.Field(volume,"flowMap");detailTex=AccessTools.Field(volume,"useDetailTex");painterTiles=AccessTools.Field(volume,"painterTiles");painterMasks=AccessTools.Field(volume,"painterTileMasks");
                     mainMaterial=AccessTools.Field(volume,"raymarchedCloudMaterial");reflectionMaterial=AccessTools.Field(volume,"reflectionProbeRaymarchedCloudMaterial");
                     if(new[]{mapType,mapMask,mapTexture,flowMap,detailTex,painterTiles,painterMasks,mainMaterial,reflectionMaterial}.Any(f=>f==null))throw new MissingFieldException("Coverage proof fields");
+                    flowCoverageIndependent=CoverageFlowProof.KnownAssets();
                     getUV=(Func<Vector3,Vector2>)Delegate.CreateDelegate(typeof(Func<Vector3,Vector2>),AccessTools.DeclaredMethod(wrapper,"GetEquirectangularUV",new[]{typeof(Vector3)}));
                 }
                 var renderer=assembly.GetType("Atmosphere.DeferredRaymarchedVolumetricCloudsRenderer",true);
@@ -84,7 +86,7 @@ namespace CloudLoopFix
                 candidate=new Candidate{Path=source,Wrapper=wrapper};
                 if(wide){
                     candidate.Eligible=false;
-                    if(wrapper!=null&&mapType.GetValue(wrapper).ToString()=="AlphaMap"&&mapMask.GetValue(wrapper).ToString()=="ALPHAMAP_R"&&flowMap.GetValue(volume)==null&&!(bool)detailTex.GetValue(volume)&&!HasItems(painterTiles.GetValue(volume))&&!HasItems(painterMasks.GetValue(volume))){
+                    if(wrapper!=null&&mapType.GetValue(wrapper).ToString()=="AlphaMap"&&mapMask.GetValue(wrapper).ToString()=="ALPHAMAP_R"&&CoverageNeutralFlow(volume,false)&&!(bool)detailTex.GetValue(volume)&&!HasItems(painterTiles.GetValue(volume))&&!HasItems(painterMasks.GetValue(volume))){
                         candidate.Type=mapType.GetValue(wrapper);candidate.Mask=mapMask.GetValue(wrapper);
                         candidate.Texture=mapTexture.GetValue(wrapper) as Texture2D;
                         if(candidate.Texture!=null&&candidate.Texture.format==TextureFormat.BC4&&candidate.Texture.isReadable&&candidate.Texture.mipmapCount==1&&candidate.Texture.anisoLevel<=1){
@@ -100,7 +102,7 @@ namespace CloudLoopFix
                         }
                     }
                 }
-                if(wide)Emit("COVERAGE_CULL_SOURCE","path="+source+"; eligible="+candidate.Eligible+"; type="+(wrapper==null?"none":mapType.GetValue(wrapper).ToString())+"; mask="+(wrapper==null?"none":mapMask.GetValue(wrapper).ToString())+"; texture="+(candidate.Texture==null?"none":candidate.Texture.width+"x"+candidate.Texture.height+"; mips="+candidate.Texture.mipmapCount+"; aniso="+candidate.Texture.anisoLevel+"; format="+candidate.Texture.format+"; readable="+candidate.Texture.isReadable));
+                if(wide)Emit("COVERAGE_CULL_SOURCE","path="+source+"; eligible="+candidate.Eligible+"; type="+(wrapper==null?"none":mapType.GetValue(wrapper).ToString())+"; mask="+(wrapper==null?"none":mapMask.GetValue(wrapper).ToString())+"; flowAssets="+flowCoverageIndependent+"; flow="+(flowMap.GetValue(volume)!=null)+"; flowNeutral="+CoverageNeutralFlow(volume,false)+"; detail="+detailTex.GetValue(volume)+"; painter="+(HasItems(painterTiles.GetValue(volume))||HasItems(painterMasks.GetValue(volume)))+"; texture="+(candidate.Texture==null?"none":candidate.Texture.width+"x"+candidate.Texture.height+"; mips="+candidate.Texture.mipmapCount+"; aniso="+candidate.Texture.anisoLevel+"; format="+candidate.Texture.format+"; readable="+candidate.Texture.isReadable));
                 candidates.Add(volume,candidate);
             }
             if(!candidate.Eligible)return false;
@@ -120,7 +122,7 @@ namespace CloudLoopFix
                 if(material==null||!bindings.TryGetValue(material,out binding)||!ReferenceEquals(binding.Wrapper,currentCoverage)||binding.Texture!=candidate.Texture)return false;
                 // The original setter is authoritative: these shader uniforms cannot be
                 // read using Material.GetTexture, even when HasProperty returns true.
-                if(flowMap.GetValue(volume)!=null||(bool)detailTex.GetValue(volume)||HasItems(painterTiles.GetValue(volume))||HasItems(painterMasks.GetValue(volume)))return false;
+                if(!CoverageNeutralFlow(volume,reflection)||(bool)detailTex.GetValue(volume)||HasItems(painterTiles.GetValue(volume))||HasItems(painterMasks.GetValue(volume)))return false;
             }
             var planet=(CelestialBody)body.GetValue(volume);
             if(planet==null)return false;
@@ -129,19 +131,25 @@ namespace CloudLoopFix
             double occluder=CoverageVisibility.OccluderRadius(planet.Radius,planet.ocean,minimum);
             if(double.IsNaN(occluder))return false;
             var matrix=(Matrix4x4)rotation.GetValue(volume);
+            for(int i=0;i<16;i++)if(float.IsNaN(matrix[i])||float.IsInfinity(matrix[i]))return false;
             // A spherical cap stays spherical only under a rigid transform.
             Vector3 x=matrix.GetColumn(0),y=matrix.GetColumn(1),z=matrix.GetColumn(2);
-            if(Mathf.Abs(x.sqrMagnitude-1)>0.0001f||Mathf.Abs(y.sqrMagnitude-1)>0.0001f||Mathf.Abs(z.sqrMagnitude-1)>0.0001f||Mathf.Abs(Vector3.Dot(x,y))>0.0001f||Mathf.Abs(Vector3.Dot(x,z))>0.0001f||Mathf.Abs(Vector3.Dot(y,z))>0.0001f)return false;
+            if(matrix.m30!=0||matrix.m31!=0||matrix.m32!=0||matrix.m33!=1||Mathf.Abs(x.sqrMagnitude-1)>0.0001f||Mathf.Abs(y.sqrMagnitude-1)>0.0001f||Mathf.Abs(z.sqrMagnitude-1)>0.0001f||Mathf.Abs(Vector3.Dot(x,y))>0.0001f||Mathf.Abs(Vector3.Dot(x,z))>0.0001f||Mathf.Abs(Vector3.Dot(y,z))>0.0001f)return false;
             Vector3 mapped=matrix.MultiplyPoint(camera.transform.position);double radius=(camera.transform.position-planet.transform.position).magnitude;
             if(mapped.sqrMagnitude<=0||Math.Abs(mapped.magnitude-radius)>radius*.0001)return false;
             Vector2 uv=getUV(mapped.normalized);
-            return proof.EmptyCap(uv.x,uv.y,CoverageVisibility.VisibleCapDegrees(radius,(float)outer.GetValue(volume),occluder)+3);
+            double outerRadius=(float)outer.GetValue(volume),globalAngle=CoverageVisibility.VisibleCapDegrees(radius,outerRadius,occluder)+3;
+            return proof.EmptyCap(uv.x,uv.y,globalAngle);
         }
         static bool HasItems(object value){var list=value as ICollection;return list!=null&&list.Count>0;}
+        static bool CoverageNeutralFlow(object volume,bool reflection)
+        {
+            return flowMap.GetValue(volume)==null||(flowCoverageIndependent&&CoverageFlowProof.MaterialMatches((Material)(reflection?reflectionMaterial:mainMaterial).GetValue(volume)));
+        }
         public static void BeforeRender(object __instance)
         {
             Camera camera=Camera.current;if(camera==null)return;
-            var bounds=(IList)boundsField.GetValue(__instance);remove.Clear();decisions.Clear();
+            var bounds=(IList)boundsField.GetValue(__instance);if(bounds==null||bounds.Count==0)return;remove.Clear();decisions.Clear();
             bool reflection=(bool)isReflection.GetValue(__instance);
             for(int i=0;i<bounds.Count;i++){
                 object layer=boundLayer.GetValue(bounds[i]);bool hidden;
@@ -150,7 +158,9 @@ namespace CloudLoopFix
             }
             // Keep at least one interval: the original renderer doesn't initialize empty ray output.
             // volumesAdded stays intact for LightVolume, global radii, fade and reconstruction inputs.
-            culled+=ApplyRemovals(bounds,remove)/2;decisions.Clear();
+            int removed=ApplyRemovals(bounds,remove);
+            culled+=removed/2;
+            decisions.Clear();
         }
         public static int ApplyRemovals(IList bounds,List<int> indices)
         {

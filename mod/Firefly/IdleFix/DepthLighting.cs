@@ -39,13 +39,20 @@ namespace FireflyIdleFix
             if(SystemInfo.graphicsDeviceType!=GraphicsDeviceType.Direct3D11)return false;
             if(Environment.GetEnvironmentVariable("KOE_FIREFLY_DEPTH_DISABLE")=="1"||Environment.GetEnvironmentVariable("KOE_DEPTH_LIGHT_AUDIT")=="1")return false;
             var loader=AccessTools.TypeByName("Deferred.ShaderLoader");
-            if(loader!=null&&Matches(loader.Assembly.Location,"2f870bebde3b88ff0d051b816ad0b79c20b474acb96c28daa39e26e9edeed313")&&
-                Matches(Path.Combine(Path.GetDirectoryName(loader.Assembly.Location),"Shaders/replacementshaders.shab"),"a85e2a650112aa406d87b749f5f36cbcde932c6d65dab23e0cd062213d552bbd"))
+            // All selected replacement Shader objects are byte-identical in
+            // Deferred 1.3.3 and 1.3.5. Other changed shaders are not admitted.
+            if(loader!=null&&KnownDeferred(loader.Assembly.Location))
                 replacements=loader.GetProperty("ReplacementShaders",BindingFlags.Public|BindingFlags.Static);
             harmony.Patch(AccessTools.Method(typeof(AtmoFxModule),"CreateVesselFx"),postfix:new HarmonyMethod(typeof(DepthLighting),"Register"));
             Camera.onPreCull+=Before;Camera.onPostRender+=After;attached=true;scene=HighLogic.LoadedScene;return true;
         }
-        static bool Matches(string path,string expected){if(!File.Exists(path))return false;using(var sha=SHA256.Create())using(var stream=File.OpenRead(path))return BitConverter.ToString(sha.ComputeHash(stream)).Replace("-","").ToLowerInvariant()==expected;}
+        internal static bool Matches(string path,string expected){if(!File.Exists(path))return false;using(var sha=SHA256.Create())using(var stream=File.OpenRead(path))return BitConverter.ToString(sha.ComputeHash(stream)).Replace("-","").ToLowerInvariant()==expected;}
+        static bool KnownDeferred(string plugin)
+        {
+            string bundle=Path.Combine(Path.GetDirectoryName(plugin),"Shaders/replacementshaders.shab");
+            return (Matches(plugin,"2f870bebde3b88ff0d051b816ad0b79c20b474acb96c28daa39e26e9edeed313")&&Matches(bundle,"a85e2a650112aa406d87b749f5f36cbcde932c6d65dab23e0cd062213d552bbd"))||
+                (Matches(plugin,"47052420db8ddad759ba68eb53fb747c8f13335f1d253529b51d79cdf3b44108")&&Matches(bundle,"410f97b61be137953bf0be439e50203af88a470742b12c2591a97cb126cb6c71"));
+        }
         static void Register(AtmoFxModule __instance)
         {
             if(!attached||!__instance.isLoaded||__instance.fxVessel==null||__instance.fxVessel.airstreamCamera==null)return;
@@ -59,7 +66,7 @@ namespace FireflyIdleFix
             var module=e.Module;var vessel=e.Vessel;
             if(module==null||!module.isLoaded||module.OverridePhysics||vessel==null||vessel!=FlightGlobals.ActiveVessel||vessel.packed)return false;
             // Protect other loaded craft and unvalidated geometry/lighting interactions.
-            foreach(var other in FlightGlobals.VesselsLoaded)if(other!=null&&other!=vessel&&other.loaded)return false;
+            foreach(var other in FlightGlobals.VesselsLoaded)if(other!=null&&other!=vessel&&other.loaded){if(warned.Add("multiple-loaded-vessels"))Debug.Log("[FireflyDepthLighting] Original path: another loaded vessel; "+other.vesselName+"; parts="+other.parts.Count);return false;}
             if(supported.Count==0)foreach(string name in shaderNames){var shader=Shader.Find(name);if(shader!=null)supported.Add(shader);}
             if(!replacementsReady&&replacements!=null){var shaders=replacements.GetValue(null,null) as Dictionary<string,Shader>;if(shaders!=null){foreach(string name in shaderNames){Shader shader;if(shaders.TryGetValue(name,out shader)&&shader!=null)supported.Add(shader);}replacementsReady=true;}}
             if(e.Parts!=vessel.parts.Count||e.Renderers==null){e.Parts=vessel.parts.Count;var all=new HashSet<Renderer>();foreach(var part in vessel.parts)foreach(var renderer in part.GetComponentsInChildren<Renderer>(true))all.Add(renderer);e.Renderers=new Renderer[all.Count];all.CopyTo(e.Renderers);e.Objects=new GameObject[e.Renderers.Length];for(int i=0;i<e.Renderers.Length;i++)e.Objects[i]=e.Renderers[i].gameObject;}
@@ -76,10 +83,10 @@ namespace FireflyIdleFix
                     // shared material retains detection of changes on every render.
                     if(!checkedMaterials.Add(material))continue;
                     var shader=material==null?null:material.shader;
-                    if(shader==null||!supported.Contains(shader))
+                    if(shader==null||(!supported.Contains(shader)&&!TufxDepthShader.Contains(shader)))
                     {
                         string name=shader==null?"missing":shader.name;
-                        if(warned.Add(name))Debug.Log("[FireflyDepthLighting] Original path for shader: "+name);
+                        if(warned.Add(name))Debug.Log("[FireflyDepthLighting] Original path for shader: "+name+"; renderer="+renderer.name+"; actual="+(shader==null?0:shader.GetInstanceID())+"; lookup="+(Shader.Find(name)==null?0:Shader.Find(name).GetInstanceID()));
                         return false;
                     }
                 }
