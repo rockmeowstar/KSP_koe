@@ -31,6 +31,16 @@ namespace KoeFrameGeneration
         delegate int Integer();
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         delegate IntPtr Pointer();
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        delegate void Texture(IntPtr image);
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        delegate double MonitorRefresh(IntPtr window);
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        delegate void TargetMode(int fullGeneration, double targetFPS);
+        Texture SetFrameGenerationSilhouette;
+        readonly VesselSilhouette silhouette = new VesselSilhouette();
+        Camera silhouetteCamera;
+        CommandBuffer silhouetteCommands;
         Initialize InitializeFrameGeneration;
         Set SetFrameGeneration;
         Action InvalidateFrameGenerationHistory, StopFrameGeneration;
@@ -40,7 +50,11 @@ namespace KoeFrameGeneration
         Read ReadFrameGenerationPresentation;
         Read ReadFrameGenerationReShade;
         Read ReadFrameGenerationQuality;
-        readonly long[] quality = new long[9];
+        Read ReadFrameGenerationSilhouette;
+        Read ReadFrameGenerationTarget;
+        readonly long[] targetStats = new long[5];
+        readonly long[] silhouetteStats = new long[2];
+        readonly long[] quality = new long[17];
         readonly long[] reshade = new long[3];
         readonly long[] presentation = new long[3], lastPresentation = new long[3];
         Pointer GetFrameGenerationError, GetFrameGenerationRenderEvent;
@@ -140,7 +154,16 @@ namespace KoeFrameGeneration
                 if (GetProcAddress(module, "ReadFrameGenerationReShade") != IntPtr.Zero)
                     ReadFrameGenerationReShade = Function<Read>(module, "ReadFrameGenerationReShade");
                 ReadFrameGenerationQuality = Function<Read>(module, "ReadFrameGenerationQuality");
+                SetFrameGenerationSilhouette = Function<Texture>(module, "SetFrameGenerationSilhouette");
+                ReadFrameGenerationSilhouette = Function<Read>(module, "ReadFrameGenerationSilhouette");
+                ReadFrameGenerationTarget = Function<Read>(module, "ReadFrameGenerationTarget");
+                double monitorHz;
+                using (var process = System.Diagnostics.Process.GetCurrentProcess())
+                    monitorHz = Function<MonitorRefresh>(module, "GetFrameGenerationMonitorHz")(process.MainWindowHandle);
+                var target = FrameGenerationSettings.Load(Path.Combine(KSPUtil.ApplicationRootPath,
+                    "GameData", "KerbalOverEngineering", "FrameGeneration.cfg"), monitorHz);
                 Function<Toggle>(module, "SetAdaptiveFrameCadence")(KerbalOverEngineering.Options.Settings.Enabled("Rendering.AdaptiveFrameCadence") ? 1 : 0);
+                Function<TargetMode>(module, "ConfigureFrameGenerationTarget")(target.FullGeneration ? 1 : 0, target.TargetFPS);
                 // AI-generated comment: The direct-flow backend does not read this path, but the native
                 // shared initializer still normalizes it to an absolute path.
                 int status = InitializeFrameGeneration(folder);
@@ -160,6 +183,7 @@ namespace KoeFrameGeneration
                 DontDestroyOnLoad(gameObject);
                 renderEvent = GetFrameGenerationRenderEvent();
                 Camera.onPreCull += ConfigureUI;
+                GameEvents.onVesselWasModified.Add(silhouette.Invalidate);
                 GameEvents.onGameSceneLoadRequested.Add(ClearUI);
                 Debug.Log(
                     "[KoeFrameGeneration] enabled DX11 GPU interpolation; F10 toggles; base rendering/physics unchanged; presentation counters are submissions, not monitor scanout"
@@ -177,7 +201,10 @@ namespace KoeFrameGeneration
             // AI-generated comment: Inspect the final camera pose after LateUpdate, before its image
             // is captured. Update alone observes a camera cut one frame late.
             if (HighLogic.LoadedSceneIsFlight && FlightCamera.fetch != null && camera == FlightCamera.fetch.mainCamera)
+            {
                 CheckFlightHistory();
+                ConfigureSilhouette(camera);
+            }
             // AI-generated comment: This stock camera draws only UI layers. Capture the completed world
             // before any of its geometry; final swap-chain pixels supply the UI.
             if (camera == null
@@ -199,6 +226,7 @@ namespace KoeFrameGeneration
 
         void ClearUI(GameScenes scene)
         {
+            ClearSilhouette();
             if (initialized)
                 SetFrameGeneration(on ? 1 : 0, 0);
             foreach (var item in uiBuffers.Values)
@@ -209,6 +237,39 @@ namespace KoeFrameGeneration
             }
 
             uiBuffers.Clear();
+        }
+
+        void ConfigureSilhouette(Camera camera)
+        {
+            if (!on || !silhouette.Prepare(camera))
+            {
+                ClearSilhouette();
+                return;
+            }
+            if (silhouetteCamera != camera)
+            {
+                if (silhouetteCamera != null && silhouetteCommands != null)
+                    silhouetteCamera.RemoveCommandBuffer(CameraEvent.AfterEverything, silhouetteCommands);
+                if (silhouetteCommands != null) silhouetteCommands.Dispose();
+                silhouetteCommands = new CommandBuffer { name = "KOE vessel silhouette" };
+                silhouetteCamera = camera;
+                camera.AddCommandBuffer(CameraEvent.AfterEverything, silhouetteCommands);
+            }
+            silhouetteCommands.Clear();
+            silhouette.Record(silhouetteCommands, camera);
+            SetFrameGenerationSilhouette(silhouette.NativeImage);
+            silhouetteCommands.IssuePluginEvent(renderEvent, 2);
+        }
+
+        void ClearSilhouette()
+        {
+            if (SetFrameGenerationSilhouette != null) SetFrameGenerationSilhouette(IntPtr.Zero);
+            if (silhouetteCamera != null && silhouetteCommands != null)
+                silhouetteCamera.RemoveCommandBuffer(CameraEvent.AfterEverything, silhouetteCommands);
+            if (silhouetteCommands != null) silhouetteCommands.Dispose();
+            silhouetteCommands = null;
+            silhouetteCamera = null;
+            silhouette.Dispose();
         }
 
         public void Update()
@@ -276,7 +337,16 @@ namespace KoeFrameGeneration
             }
 
             ReadFrameGenerationQuality(quality, quality.Length);
+            ReadFrameGenerationSilhouette(silhouetteStats, silhouetteStats.Length);
+            ReadFrameGenerationTarget(targetStats, targetStats.Length);
             row = row.TrimEnd('\r', '\n', '}')
+                + ",\"requestedTargetFPS\":" + F(targetStats[0] / 1000.0)
+                + ",\"fullGeneration\":" + (targetStats[4] != 0 ? "true" : "false")
+                + ",\"monitorHz\":" + F(targetStats[1] / 1000.0)
+                + ",\"effectiveTargetFPS\":" + F(targetStats[2] / 1000.0)
+                + ",\"scheduledPhases\":" + targetStats[3]
+                + ",\"silhouetteCopies\":" + silhouetteStats[0]
+                + ",\"silhouetteFrames\":" + silhouetteStats[1]
                 + ",\"qualityRequests\":" + quality[0]
                 + ",\"qualityAccepted\":" + quality[1]
                 + ",\"qualityNoHistory\":" + quality[2]
@@ -285,6 +355,14 @@ namespace KoeFrameGeneration
                 + ",\"qualityMotionRejected\":" + quality[6]
                 + ",\"qualityContourRejected\":" + quality[7]
                 + ",\"qualityInvalid\":" + quality[8]
+                + ",\"flowExecutions\":" + quality[9]
+                + ",\"preflightVetoes\":" + quality[10]
+                + ",\"inputWaitMs\":" + F(quality[11] / 1000.0)
+                + ",\"decisionAgeMs\":" + F(quality[12] / 1000.0)
+                + ",\"analyzedPixels\":" + quality[13]
+                + ",\"safePixels\":" + quality[14]
+                + ",\"synthesizedPixels\":" + quality[15]
+                + ",\"composedPixels\":" + quality[16]
                 + "}\n";
             if (!string.IsNullOrEmpty(trace))
                 File.AppendAllText(trace, row);
@@ -309,6 +387,7 @@ namespace KoeFrameGeneration
             {
                 Camera.onPreCull -= ConfigureUI;
                 GameEvents.onGameSceneLoadRequested.Remove(ClearUI);
+                GameEvents.onVesselWasModified.Remove(silhouette.Invalidate);
                 ClearUI(HighLogic.LoadedScene);
                 StopFrameGeneration();
                 initialized = false;

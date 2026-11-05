@@ -2,10 +2,15 @@
 #include <cstdint>
 namespace ConfidenceGate
 {
-// AI-generated comment: Deterministic vetoes, not probabilities. One unsafe moving pixel vetoes a frame.
+// AI-generated comment: Whole-frame veto retained for synchronous regression fixtures.
 inline bool Accept(const std::uint32_t *c, std::uint64_t pixels)
 {
     return c && pixels && c[3] == pixels && c[0] > 0 && c[0] <= pixels && c[1] == 0 && c[2] == 0;
+}
+inline bool AcceptMasked(const std::uint32_t *c, std::uint64_t pixels)
+{
+    return c && pixels && c[3] == pixels && c[0] <= pixels && c[4] > 0 && c[4] <= c[0] &&
+           c[1] <= c[0] && c[2] <= c[0] && c[5] > 0 && c[5] <= c[4];
 }
 inline const char *Shader = R"HLSL(
 Texture2D<float4> beforeImage : register(t0);
@@ -17,9 +22,18 @@ cbuffer Dimensions : register(b0)
 {
     float2 size;
     float2 gridSize;
+#if KOE_TEMPORAL_PHASE
+    float phase;
+    float3 padding;
+#endif
 }
 RWStructuredBuffer<uint> result : register(u0);
+#if KOE_LOCAL_MASK
+RWTexture2D<uint> confidenceMask : register(u1);
+groupshared uint totals[5];
+#else
 groupshared uint totals[4];
+#endif
 float largest(float3 v)
 {
     return max(v.r, max(v.g, v.b));
@@ -47,6 +61,15 @@ bool thin(float3 c, float3 a, float3 b)
 {
     return largest(abs(a - b)) <= 2.0 / 255 && min(largest(abs(c - a)), largest(abs(c - b))) > 4.0 / 255;
 }
+bool narrowAt(int2 pixel, float3 c)
+{
+    return thin(c, currentAt(pixel - int2(1, 0)), currentAt(pixel + int2(1, 0))) ||
+           thin(c, currentAt(pixel - int2(0, 1)), currentAt(pixel + int2(0, 1))) ||
+           thin(c, currentAt(pixel - int2(2, 0)), currentAt(pixel + int2(2, 0))) ||
+           thin(c, currentAt(pixel - int2(0, 2)), currentAt(pixel + int2(0, 2))) ||
+           thin(c, currentAt(pixel - int2(4, 0)), currentAt(pixel + int2(4, 0))) ||
+           thin(c, currentAt(pixel - int2(0, 4)), currentAt(pixel + int2(0, 4)));
+}
 uint classify(int2 pixel)
 {
     float3 c = currentAt(pixel), previous = beforeImage.Load(int3(pixel, 0)).rgb;
@@ -56,11 +79,19 @@ uint classify(int2 pixel)
     float difference = largest(abs(previous - c));
     if (difference < 1.5 / 255)
         return 0;
+#if KOE_PREFLIGHT
+    return 1 | (narrowAt(pixel, c) ? 4 : 0);
+#else
     float2 centre = float2(pixel), p = centre, q = centre;
+#if KOE_TEMPORAL_PHASE
+    float t = phase;
+#else
+    float t = .5;
+#endif
     [unroll] for (int i = 0; i < 3; i++)
     {
-        p = centre - 0.5 * flowAt(p, false);
-        q = centre - 0.5 * flowAt(q, true);
+        p = centre - t * flowAt(p, false);
+        q = centre - (1 - t) * flowAt(q, true);
     }
     float2 f = flowAt(p, false), b = flowAt(q, true);
     if (any(p < 0) || any(q < 0) || any(p > size - 1) || any(q > size - 1) || any(p + f < 0) || any(q + b < 0) ||
@@ -90,23 +121,29 @@ uint classify(int2 pixel)
            up = currentAt(pixel - int2(0, 1)), down = currentAt(pixel + int2(0, 1));
     float edge = max(largest(abs(left - right)), largest(abs(up - down)));
     // AI-generated comment: Changed thin geometry cannot be certified by a 4x4 optical-flow block.
-    bool narrow = thin(c, left, right) || thin(c, up, down) ||
-                  thin(c, currentAt(pixel - int2(2, 0)), currentAt(pixel + int2(2, 0))) ||
-                  thin(c, currentAt(pixel - int2(0, 2)), currentAt(pixel + int2(0, 2))) ||
-                  thin(c, currentAt(pixel - int2(4, 0)), currentAt(pixel + int2(4, 0))) ||
-                  thin(c, currentAt(pixel - int2(0, 4)), currentAt(pixel + int2(0, 4)));
+    bool narrow = narrowAt(pixel, c);
     bool lost = edge > 4.0 / 255 && min(largest(abs(a - c)), largest(abs(z - c))) > 4.0 / 255;
     if (narrow || lost)
         flags |= 4;
     return flags;
+#endif
 }
 [numthreads(8, 8, 1)] void main(uint3 id : SV_DispatchThreadID, uint lane : SV_GroupIndex) {
+#if KOE_LOCAL_MASK
+    if (lane < 5)
+#else
     if (lane < 4)
+#endif
         totals[lane] = 0;
     GroupMemoryBarrierWithGroupSync();
     if (all(id.xy < uint2(size)))
     {
         uint flags = classify(int2(id.xy));
+#if KOE_LOCAL_MASK
+        confidenceMask[id.xy] = flags;
+        if (flags == 1)
+            InterlockedAdd(totals[4], 1);
+#endif
         InterlockedAdd(totals[3], 1);
         if (flags & 1)
             InterlockedAdd(totals[0], 1);
@@ -116,7 +153,11 @@ uint classify(int2 pixel)
             InterlockedAdd(totals[2], 1);
     }
     GroupMemoryBarrierWithGroupSync();
+#if KOE_LOCAL_MASK
+    if (lane < 5)
+#else
     if (lane < 4)
+#endif
         InterlockedAdd(result[lane], totals[lane]);
 }
 )HLSL";

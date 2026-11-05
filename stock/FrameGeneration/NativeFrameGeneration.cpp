@@ -8,7 +8,7 @@ using Interpolator = OpticalD3D11;
 using Interpolator = FrucD3D11;
 #endif
 #include "MinHook.h"
-#include <dxgi1_2.h>
+#include <dxgi1_4.h>
 #include <d3dcompiler.h>
 #include <atomic>
 #include <thread>
@@ -20,20 +20,33 @@ using Interpolator = FrucD3D11;
 #include <deque>
 #include <fstream>
 #include <sstream>
+#include <array>
+#include <climits>
 #include "PresentationCadence.h"
 #include "ReShadeIntegration.h"
 #include "FinalPresentation.h"
+#include "FrameBudget.h"
+#include "GpuQueueLimit.h"
+#include "TargetFrameRate.h"
+#include "DisplayRefresh.h"
 using Microsoft::WRL::ComPtr;
 using Clock = std::chrono::steady_clock;
 static std::atomic<bool> enabled{}, allowed{}, started{}, stopWorker{};
-static std::atomic<bool> adaptiveCadence{};
+static std::atomic<bool> adaptiveCadence{true}, fullGeneration{};
+static std::atomic<double> requestedTargetFPS{TargetFrameRate::Default};
+static std::atomic<long long> monitorMilliHz{}, effectiveMilliFPS{60000}, scheduledPhases{};
 static std::atomic<long long> captured{}, generated{}, realPresents{}, generatedPresents{}, skipped{}, repeated{},
     failures{}, workerCallUs{};
 static std::atomic<long long> cleanCopies{}, missingClean{};
 static std::atomic<long long> reshadeCaptures{}, reshadeBypasses{};
 static std::atomic<long long> qualityRequests{}, qualityReasons[8]{};
+static std::atomic<long long> flowExecutions{}, preflightVetoes{};
+static std::atomic<long long> inputWaitUs{}, decisionAgeUs{};
+static std::atomic<long long> analyzedPixels{}, safePixels{}, synthesizedPixels{}, composedPixels{};
+static std::atomic<long long> silhouetteCopies{}, silhouetteFrames{};
 static std::atomic<int> captureFormat{}, captureViewFormat{};
 static std::mutex stateMutex;
+static ComPtr<ID3D11Texture2D> silhouetteInput;
 static std::wstring library;
 #ifdef KOE_CAPTURE_AUDIT
 static std::filesystem::path auditRoot;
@@ -66,6 +79,10 @@ struct Slot
     ComPtr<ID3D11Texture2D> texture;
     ComPtr<IDXGIKeyedMutex> mutex;
     ComPtr<ID3D11Texture2D> finalTexture;
+    ComPtr<ID3D11Texture2D> silhouette;
+    ComPtr<IDXGIKeyedMutex> silhouetteMutex;
+    HANDLE silhouetteHandle{};
+    bool hasSilhouette{};
     ComPtr<IDXGIKeyedMutex> finalMutex;
     HANDLE finalHandle{};
     HANDLE handle{};
@@ -78,6 +95,7 @@ struct Slot
             CloseHandle(handle);
         if (finalHandle)
             CloseHandle(finalHandle);
+        if (silhouetteHandle) CloseHandle(silhouetteHandle);
     }
 };
 struct Shared
@@ -86,11 +104,18 @@ struct Shared
     ComPtr<ID3D11DeviceContext> context;
     ComPtr<IDXGISwapChain> chain;
     ComPtr<ID3D11Texture2D> cleanWorld;
+    ComPtr<ID3D11Texture2D> cleanSilhouette;
+    ComPtr<ID3D11RenderTargetView> silhouetteTarget;
+    ComPtr<ID3D11Resource> silhouetteSource;
+    ComPtr<ID3D11ShaderResourceView> silhouetteSourceView;
+    std::uint64_t silhouetteSerial{}, usedSilhouetteSerial{};
+    bool cleanHasSilhouette{};
     ComPtr<ID3D11DeviceContext1> captureContext;
     ComPtr<ID3DDeviceContextState> captureState;
     ComPtr<ID3D11RenderTargetView> captureTarget;
     ComPtr<ID3D11VertexShader> captureVS;
     ComPtr<ID3D11PixelShader> capturePS;
+    ComPtr<ID3D11PixelShader> silhouetteCapturePS;
     ComPtr<ID3D11RasterizerState> captureRaster;
     ComPtr<ID3D11Resource> captureSource;
     ComPtr<ID3D11ShaderResourceView> captureSourceView;
@@ -158,9 +183,20 @@ static std::shared_ptr<Shared> CreateShared(IDXGISwapChain *chain, ID3D11Texture
         Check(resource->CreateSharedHandle(nullptr, DXGI_SHARED_RESOURCE_READ | DXGI_SHARED_RESOURCE_WRITE, nullptr,
                                            &slot.finalHandle),
               "UI handle");
+        auto maskDesc = desc;
+        maskDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        Check(value->source->CreateTexture2D(&maskDesc, nullptr, &slot.silhouette), "shared silhouette");
+        Check(slot.silhouette.As(&slot.silhouetteMutex), "silhouette mutex");
+        resource.Reset();
+        Check(slot.silhouette.As(&resource), "silhouette resource");
+        Check(resource->CreateSharedHandle(nullptr, DXGI_SHARED_RESOURCE_READ | DXGI_SHARED_RESOURCE_WRITE,
+            nullptr, &slot.silhouetteHandle), "silhouette handle");
     }
     desc.MiscFlags = 0;
     Check(value->source->CreateTexture2D(&desc, nullptr, &value->cleanWorld), "pre-UI world texture");
+    desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    Check(value->source->CreateTexture2D(&desc, nullptr, &value->cleanSilhouette), "clean silhouette");
+    Check(value->source->CreateRenderTargetView(value->cleanSilhouette.Get(), nullptr, &value->silhouetteTarget), "silhouette target");
     return value;
 }
 static void CapturePair(Shared &value, ID3D11Texture2D *finalImage)
@@ -179,9 +215,19 @@ static void CapturePair(Shared &value, ID3D11Texture2D *finalImage)
                 slot.mutex->ReleaseSync(0);
                 continue;
             }
+            if (slot.silhouetteMutex->AcquireSync(0, 0) != S_OK)
+            {
+                slot.finalMutex->ReleaseSync(0);
+                slot.mutex->ReleaseSync(0);
+                continue;
+            }
             value.context->CopyResource(slot.texture.Get(), value.cleanWorld.Get());
             value.context->CopyResource(slot.finalTexture.Get(), finalImage);
+            slot.hasSilhouette = value.cleanHasSilhouette;
+            if (slot.hasSilhouette) silhouetteFrames++;
+            if (slot.hasSilhouette) value.context->CopyResource(slot.silhouette.Get(), value.cleanSilhouette.Get());
             value.context->Flush();
+            Check(slot.silhouetteMutex->ReleaseSync(1), "silhouette release");
             Check(slot.finalMutex->ReleaseSync(1), "UI release");
             Check(slot.mutex->ReleaseSync(1), "capture release");
             slot.timestamp = Seconds();
@@ -301,13 +347,30 @@ extern "C" __declspec(dllexport) void ReadFrameGenerationReShade(long long *valu
 }
 extern "C" __declspec(dllexport) void ReadFrameGenerationQuality(long long *values, int count)
 {
-    if (!values || count != 9)
+    if (!values || (count != 9 && count != 11 && count != 13 && count != 17))
         return;
     values[0] = qualityRequests.load();
     for (int i = 0; i < 8; i++)
         values[i + 1] = qualityReasons[i].load();
+    if (count >= 11)
+    {
+        values[9] = flowExecutions.load();
+        values[10] = preflightVetoes.load();
+    }
+    if (count >= 13)
+    {
+        values[11] = inputWaitUs.load();
+        values[12] = decisionAgeUs.load();
+    }
+    if (count >= 17)
+    {
+        values[13] = analyzedPixels.load();
+        values[14] = safePixels.load();
+        values[15] = synthesizedPixels.load();
+        values[16] = composedPixels.load();
+    }
 }
-static void CaptureWorld(Shared &value, ID3D11Texture2D *image, DXGI_FORMAT format)
+static void CaptureWorld(Shared &value, ID3D11Texture2D *image, DXGI_FORMAT format, bool silhouette = false)
 {
     if (!value.captureState)
     {
@@ -343,16 +406,26 @@ static void CaptureWorld(Shared &value, ID3D11Texture2D *image, DXGI_FORMAT form
         Check(
             value.source->CreatePixelShader(blob->GetBufferPointer(), blob->GetBufferSize(), nullptr, &value.capturePS),
             "capture PS create");
+        const char *maskPixel =
+            "Texture2D<float4> image:register(t0);float4 main(float4 p:SV_Position):SV_Target{return image.Load(int3(int2(p.xy),0));}";
+        blob.Reset();
+        errors.Reset();
+        Check(D3DCompile(maskPixel, strlen(maskPixel), nullptr, nullptr, nullptr, "main", "ps_5_0",
+            D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &blob, &errors), "silhouette capture PS");
+        Check(value.source->CreatePixelShader(blob->GetBufferPointer(), blob->GetBufferSize(), nullptr,
+            &value.silhouetteCapturePS), "silhouette capture PS create");
         D3D11_RASTERIZER_DESC rd{};
         rd.FillMode = D3D11_FILL_SOLID;
         rd.CullMode = D3D11_CULL_NONE;
         rd.DepthClipEnable = TRUE;
         Check(value.source->CreateRasterizerState(&rd, &value.captureRaster), "capture rasterizer");
     }
-    if (value.captureSource.Get() != image)
+    auto &source = silhouette ? value.silhouetteSource : value.captureSource;
+    auto &sourceView = silhouette ? value.silhouetteSourceView : value.captureSourceView;
+    if (source.Get() != image)
     {
-        value.captureSourceView.Reset();
-        value.captureSource = image;
+        sourceView.Reset();
+        source = image;
         D3D11_SHADER_RESOURCE_VIEW_DESC srv{};
         srv.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
         srv.Texture2D.MipLevels = 1;
@@ -360,12 +433,12 @@ static void CaptureWorld(Shared &value, ID3D11Texture2D *image, DXGI_FORMAT form
                          ? DXGI_FORMAT_R16G16B16A16_FLOAT
                      : ColorFamily(format) == 1 ? DXGI_FORMAT_R8G8B8A8_UNORM
                                                 : DXGI_FORMAT_B8G8R8A8_UNORM;
-        Check(value.source->CreateShaderResourceView(image, &srv, &value.captureSourceView), "capture HDR source view");
+        Check(value.source->CreateShaderResourceView(image, &srv, &sourceView), "capture source view");
     }
     ComPtr<ID3DDeviceContextState> previous;
     value.captureContext->SwapDeviceContextState(value.captureState.Get(), &previous);
-    auto *target = value.captureTarget.Get();
-    auto *view = value.captureSourceView.Get();
+    auto *target = silhouette ? value.silhouetteTarget.Get() : value.captureTarget.Get();
+    auto *view = sourceView.Get();
     value.context->OMSetRenderTargets(1, &target, nullptr);
     D3D11_VIEWPORT vp{0, 0, static_cast<float>(value.desc.Width), static_cast<float>(value.desc.Height), 0, 1};
     value.context->RSSetViewports(1, &vp);
@@ -373,7 +446,7 @@ static void CaptureWorld(Shared &value, ID3D11Texture2D *image, DXGI_FORMAT form
     value.context->IASetInputLayout(nullptr);
     value.context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     value.context->VSSetShader(value.captureVS.Get(), nullptr, 0);
-    value.context->PSSetShader(value.capturePS.Get(), nullptr, 0);
+    value.context->PSSetShader(silhouette ? value.silhouetteCapturePS.Get() : value.capturePS.Get(), nullptr, 0);
     value.context->PSSetShaderResources(0, 1, &view);
     value.context->Draw(3, 0);
     view = nullptr;
@@ -382,13 +455,27 @@ static void CaptureWorld(Shared &value, ID3D11Texture2D *image, DXGI_FORMAT form
 }
 static void __stdcall BeforeUI(int event)
 {
-    if (event != 1 || !enabled.load() || !allowed.load())
+    if ((event != 1 && event != 2) || !enabled.load() || !allowed.load())
         return;
     try
     {
         std::lock_guard<std::mutex> lock(stateMutex);
         if (!shared)
             return;
+        if (event == 2)
+        {
+            if (!silhouetteInput) return;
+            D3D11_TEXTURE2D_DESC desc{};
+            silhouetteInput->GetDesc(&desc);
+            ComPtr<ID3D11Device> owner;
+            silhouetteInput->GetDevice(&owner);
+            if (owner.Get() != shared->source.Get() || desc.Width != shared->desc.Width || desc.Height != shared->desc.Height
+                || desc.SampleDesc.Count != 1 || !Supported(desc.Format)) return;
+            CaptureWorld(*shared, silhouetteInput.Get(), desc.Format, true);
+            shared->silhouetteSerial++;
+            silhouetteCopies++;
+            return;
+        }
         ComPtr<ID3D11RenderTargetView> target;
         shared->context->OMGetRenderTargets(1, &target, nullptr);
         if (!target)
@@ -409,6 +496,8 @@ static void __stdcall BeforeUI(int event)
             td.SampleDesc.Count != 1)
             return;
         CaptureWorld(*shared, buffer.Get(), td.Format);
+        shared->cleanHasSilhouette = shared->silhouetteSerial != shared->usedSilhouetteSerial;
+        shared->usedSilhouetteSerial = shared->silhouetteSerial;
         shared->cleanSerial++;
         cleanCopies++;
     }
@@ -420,6 +509,17 @@ static void __stdcall BeforeUI(int event)
         enabled = false;
     }
 }
+extern "C" __declspec(dllexport) void SetFrameGenerationSilhouette(ID3D11Texture2D *image)
+{
+    std::lock_guard<std::mutex> lock(stateMutex);
+    silhouetteInput = image;
+}
+extern "C" __declspec(dllexport) void ReadFrameGenerationSilhouette(long long *values, int count)
+{
+    if (!values || count != 2) return;
+    values[0] = silhouetteCopies.load();
+    values[1] = silhouetteFrames.load();
+}
 extern "C" __declspec(dllexport) void *GetFrameGenerationRenderEvent()
 {
     return reinterpret_cast<void *>(BeforeUI);
@@ -427,6 +527,8 @@ extern "C" __declspec(dllexport) void *GetFrameGenerationRenderEvent()
 struct Presenter
 {
     PresentationCadence cadencePolicy;
+    TargetFrameRate::Planner targetPlanner;
+    TargetFrameRate::PresentationClock presentationClock;
     HWND window{};
     std::shared_ptr<Shared> source;
     ComPtr<ID3D11Device> device;
@@ -434,6 +536,7 @@ struct Presenter
     ComPtr<ID3D11DeviceContext> context;
     ComPtr<IDXGISwapChain> swap, nativeSwap;
     ComPtr<ID3D11Texture2D> back, input, finalImage, opened[3], openedFinal[3];
+    ComPtr<ID3D11Texture2D> openedSilhouette[3], silhouetteFrame;
     ComPtr<ID3D11ShaderResourceView> finalViews[3], inputSrv, finalSrv;
     ComPtr<IDXGIKeyedMutex> mutexes[3];
     ComPtr<ID3D11RenderTargetView> inputView;
@@ -442,9 +545,38 @@ struct Presenter
     ComPtr<ID3D11PixelShader> ps, uiPS;
     ComPtr<ID3D11RenderTargetView> finalView, backView;
     ComPtr<IDXGIKeyedMutex> finalMutexes[3];
+    ComPtr<IDXGIKeyedMutex> silhouetteMutexes[3];
     ComPtr<ID3D11ShaderResourceView> interpolatedView;
     std::unique_ptr<Interpolator> fruc;
-    double lastTimestamp{}, interval = 1.0 / 30, refreshInterval = 1.0 / 75;
+    GpuQueueLimit sourceQueue;
+    struct GpuFrame
+    {
+        struct PhaseFrame
+        {
+            std::shared_ptr<Interpolator::Ticket> ticket;
+            ComPtr<ID3D11Texture2D> composed;
+            ComPtr<ID3D11RenderTargetView> target;
+            ComPtr<ID3D11ShaderResourceView> view;
+            bool resolved{};
+        };
+        std::shared_ptr<Interpolator::Ticket> ticket;
+        ComPtr<ID3D11Texture2D> composed, real;
+        ComPtr<ID3D11RenderTargetView> target;
+        ComPtr<ID3D11ShaderResourceView> composedView, realView;
+        double timestamp{}, cadence{}, deadline{};
+        bool requested{}, resolved{}, late{};
+        std::vector<PhaseFrame> phases;
+        unsigned phaseCount{};
+        unsigned nextPhase{};
+    };
+    std::array<GpuFrame, 2> frames;
+    std::deque<unsigned> readyFrames;
+    bool displaying{};
+    bool lastHashKnown{};
+    std::uint64_t lastPresentedHash{};
+    unsigned phaseCapacity = 1;
+    double nextDisplayCheck{};
+    double lastTimestamp{}, interval = 1.0 / 30, refreshInterval = 1.0 / TargetFrameRate::Default;
     struct Pending
     {
         std::shared_ptr<Interpolator::Ticket> ticket;
@@ -453,6 +585,8 @@ struct Presenter
     std::deque<Pending> pending;
 #ifdef KOE_CAPTURE_AUDIT
     ComPtr<ID3D11Texture2D> auditWorld[3], auditFinal, auditGenerated, auditComposed;
+    ComPtr<ID3D11Texture2D> auditSilhouette[3];
+    bool auditHasSilhouette[3]{};
     double auditTimes[3]{};
     std::uint64_t auditSerials[3]{};
     unsigned auditIndex{}, auditAge{};
@@ -493,7 +627,7 @@ struct Presenter
         sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
         sd.SampleDesc.Count = 1;
         sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-        sd.BufferCount = 2;
+        sd.BufferCount = 4;
         sd.OutputWindow = window;
         sd.Windowed = TRUE;
         sd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
@@ -516,13 +650,7 @@ struct Presenter
             latency->SetMaximumFrameLatency(3);
             latency->SetGPUThreadPriority(7);
         }
-        MONITORINFOEXW monitor{};
-        monitor.cbSize = sizeof(monitor);
-        DEVMODEW mode{};
-        mode.dmSize = sizeof(mode);
-        if (GetMonitorInfoW(MonitorFromWindow(source->window, MONITOR_DEFAULTTONEAREST), &monitor) &&
-            EnumDisplaySettingsW(monitor.szDevice, ENUM_CURRENT_SETTINGS, &mode) && mode.dmDisplayFrequency >= 30)
-            refreshInterval = 1.0 / mode.dmDisplayFrequency;
+        UpdateDisplay();
         Check(swap->GetBuffer(0, IID_PPV_ARGS(&back)), "presentation backbuffer");
         auto td = source->desc;
         td.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -534,6 +662,7 @@ struct Presenter
         Check(device->CreateRenderTargetView(input.Get(), nullptr, &inputView), "RGBA input view");
         Check(device->CreateShaderResourceView(input.Get(), nullptr, &inputSrv), "world SRV");
         Check(device->CreateTexture2D(&td, nullptr, &finalImage), "RGBA UI image");
+        Check(device->CreateTexture2D(&td, nullptr, &silhouetteFrame), "private silhouette");
         Check(device->CreateRenderTargetView(finalImage.Get(), nullptr, &finalView), "UI RTV");
         Check(device->CreateShaderResourceView(finalImage.Get(), nullptr, &finalSrv), "UI SRV");
         Check(device->CreateRenderTargetView(back.Get(), nullptr, &backView), "backbuffer RTV");
@@ -551,6 +680,8 @@ struct Presenter
                   "open UI input");
             Check(openedFinal[i].As(&finalMutexes[i]), "UI input mutex");
             Check(device->CreateShaderResourceView(openedFinal[i].Get(), &srv, &finalViews[i]), "UI input SRV");
+            Check(device1->OpenSharedResource1(source->slots[i].silhouetteHandle, IID_PPV_ARGS(&openedSilhouette[i])), "open silhouette");
+            Check(openedSilhouette[i].As(&silhouetteMutexes[i]), "worker silhouette mutex");
         }
         const char *vertex = "float4 main(uint id:SV_VertexID):SV_Position{return float4(id==2?3:-1,id==1?3:-1,0,1);}";
         const char *pixel =
@@ -594,7 +725,24 @@ float4 main(float4 position : SV_Position) : SV_Target
               "UI compositor PS");
         Check(device->CreatePixelShader(blob->GetBufferPointer(), blob->GetBufferSize(), nullptr, &uiPS),
               "UI compositor PS create");
+#ifdef KOE_DIRECT_FLOW
+        fruc.reset(new Interpolator(device.Get(), td.Width, td.Height, library, true, NV_OF_PERF_LEVEL_FAST));
+        std::uint64_t bytesPerPhase = std::uint64_t(td.Width)*td.Height*4*frames.size();
+        DXGI_ADAPTER_DESC adapterDesc{};
+        adapter->GetDesc(&adapterDesc);
+        std::uint64_t reserve = adapterDesc.DedicatedVideoMemory/16;
+        if (!reserve) reserve = adapterDesc.SharedSystemMemory/64;
+        ComPtr<IDXGIAdapter3> budgetAdapter;
+        DXGI_QUERY_VIDEO_MEMORY_INFO memory{};
+        if (SUCCEEDED(adapter.As(&budgetAdapter))
+            && SUCCEEDED(budgetAdapter->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &memory)))
+            reserve = memory.Budget > memory.CurrentUsage ? (memory.Budget-memory.CurrentUsage)/4 : 0;
+        phaseCapacity = static_cast<unsigned>(std::min<std::uint64_t>(reserve/bytesPerPhase, UINT_MAX));
+        phaseCapacity = std::min(phaseCapacity, TargetFrameRate::MaxAdditionalFrames);
+        fruc->ReserveDecisions(phaseCapacity*static_cast<unsigned>(frames.size())+2);
+#else
         fruc.reset(new Interpolator(device.Get(), td.Width, td.Height, library));
+#endif
         Check(device->CreateShaderResourceView(fruc->Output(), nullptr, &interpolatedView), "interpolated SRV");
 #ifdef KOE_CAPTURE_AUDIT
         if (!auditRoot.empty())
@@ -677,6 +825,8 @@ float4 main(float4 position : SV_Position) : SV_Target
         SavePixels(auditWorld[0].Get(), "world-0.rgba");
         SavePixels(auditWorld[1].Get(), "world-1.rgba");
         SavePixels(auditWorld[2].Get(), "world-2.rgba");
+        for(unsigned i=0;i<3;++i)
+            if(auditHasSilhouette[i]) SavePixels(auditSilhouette[i].Get(), ("silhouette-"+std::to_string(i)+".rgba").c_str());
         SavePixels(auditFinal.Get(), "final-2.rgba");
         if (auditGeneratedFrame && auditGenerated)
             SavePixels(auditGenerated.Get(), "generated-12.rgba");
@@ -688,12 +838,14 @@ float4 main(float4 position : SV_Position) : SV_Target
              << ",\"format\":\"RGBA8\",\"times\":[" << auditTimes[0] << "," << auditTimes[1] << "," << auditTimes[2]
              << "],\"serials\":[" << auditSerials[0] << "," << auditSerials[1] << "," << auditSerials[2]
              << "],\"generated\":" << auditGeneratedFrame << ",\"presented\":" << auditPresented
+             << ",\"silhouettes\":[" << auditHasSilhouette[0] << "," << auditHasSilhouette[1] << "," << auditHasSilhouette[2] << "]"
              << ",\"qualityReason\":" << auditQualityReason << ",\"qualityCounts\":[" << auditQualityCounts[0] << ","
              << auditQualityCounts[1] << "," << auditQualityCounts[2] << "," << auditQualityCounts[3]
              << "],\"scope\":\"diagnostic GPU readbacks, excluded from production\"}";
         auditDone = true;
         for (auto &texture : auditWorld)
             texture.Reset();
+        for (auto &texture : auditSilhouette) texture.Reset();
         auditFinal.Reset();
         auditGenerated.Reset();
         auditComposed.Reset();
@@ -728,22 +880,40 @@ float4 main(float4 position : SV_Position) : SV_Target
         context->PSSetShaderResources(0, 1, &image);
         context->OMSetRenderTargets(0, nullptr, nullptr);
     }
-    bool Present(ID3D11Texture2D *texture, bool midpoint = false)
+    void UpdateDisplay()
+    {
+        if (Seconds() >= nextDisplayCheck)
+        {
+            double hz = ReadDisplayRefresh(source->window);
+            if (hz > 0)
+            {
+                refreshInterval = 1/hz;
+                monitorMilliHz = static_cast<long long>(std::llround(hz*1000));
+            }
+            nextDisplayCheck = Seconds()+1;
+        }
+        effectiveMilliFPS = static_cast<long long>(std::llround(TargetFrameRate::Effective(fullGeneration.load(), requestedTargetFPS.load(),
+            1/refreshInterval)*1000));
+    }
+    void Compose(ID3D11RenderTargetView *target, ID3D11ShaderResourceView *world = nullptr)
+    {
+        context->OMSetRenderTargets(1, &target, nullptr);
+        context->VSSetShader(vs.Get(), nullptr, 0);
+        context->PSSetShader(uiPS.Get(), nullptr, 0);
+        ID3D11ShaderResourceView *images[] = {world ? world : interpolatedView.Get(), inputSrv.Get(), finalSrv.Get()};
+        context->PSSetShaderResources(0, 3, images);
+        context->Draw(3, 0);
+        ID3D11ShaderResourceView *empty[3]{};
+        context->PSSetShaderResources(0, 3, empty);
+        context->OMSetRenderTargets(0, nullptr, nullptr);
+    }
+    bool Present(ID3D11Texture2D *texture, bool midpoint = false, bool composed = false)
     {
         if (!Visible())
             return false;
-        if (midpoint)
+        if (midpoint && !composed)
         {
-            auto *target = backView.Get();
-            context->OMSetRenderTargets(1, &target, nullptr);
-            context->VSSetShader(vs.Get(), nullptr, 0);
-            context->PSSetShader(uiPS.Get(), nullptr, 0);
-            ID3D11ShaderResourceView *images[] = {interpolatedView.Get(), inputSrv.Get(), finalSrv.Get()};
-            context->PSSetShaderResources(0, 3, images);
-            context->Draw(3, 0);
-            ID3D11ShaderResourceView *empty[3]{};
-            context->PSSetShaderResources(0, 3, empty);
-            context->OMSetRenderTargets(0, nullptr, nullptr);
+            Compose(backView.Get());
 #ifdef KOE_CAPTURE_AUDIT
             if (!auditDone && auditIndex == 3 && !auditDirectory.empty())
                 Snapshot(back.Get(), auditComposed);
@@ -772,15 +942,195 @@ float4 main(float4 position : SV_Position) : SV_Target
         Check(hr, "generated presentation");
         return hr == S_OK;
     }
+    void ResolveFrames()
+    {
+        for (auto &frame : frames)
+        {
+            if (!frame.ticket || frame.resolved || !fruc->Completed(frame.ticket)) continue;
+            bool complete = true;
+            for (unsigned i=0;i<frame.phaseCount;++i)
+            {
+                auto &phase = frame.phases[i];
+                if (phase.resolved) continue;
+                if (!fruc->ResolveGpu(phase.ticket)) { complete = false; continue; }
+                phase.resolved = true;
+                const auto &ticket = *phase.ticket;
+                bool late = Seconds() > frame.deadline;
+                qualityReasons[late ? Interpolator::Late : static_cast<int>(ticket.rejection)]++;
+                decisionAgeUs = static_cast<long long>((Seconds()-frame.timestamp)*1000000);
+                analyzedPixels += ticket.counts[3];
+                safePixels += ticket.counts[4];
+                synthesizedPixels += ticket.counts[5];
+                composedPixels += ticket.counts[6];
+            }
+            frame.resolved = complete;
+        }
+        while (!readyFrames.empty())
+        {
+            auto &frame = frames[readyFrames.front()];
+            if (!frame.resolved) return;
+            frame.late = Seconds() > frame.deadline;
+            for (unsigned i=frame.nextPhase;i<frame.phaseCount;++i)
+            {
+                auto &phase = frame.phases[i];
+                const auto &ticket = *phase.ticket;
+                auto hash = (std::uint64_t(ticket.counts[8])<<32)|ticket.counts[9];
+                if (!ticket.eligible || frame.late || Seconds()>frame.deadline
+                    || (lastHashKnown && hash==lastPresentedHash)) {frame.nextPhase=i+1;continue;}
+                if(!presentationClock.Ready(Seconds()))return;
+                Show();
+                displaying = true;
+                if (Present(phase.composed.Get(), true, true))
+                {
+                    generated++;
+                    generatedPresents++;
+                    lastHashKnown = true;
+                    lastPresentedHash = hash;
+                    presentationClock.Presented(Seconds(),effectiveMilliFPS.load()/1000.);
+                }
+                frame.nextPhase=i+1;
+                return;
+            }
+            if (Visible() && displaying && !frame.late)
+            {
+                if(!presentationClock.Ready(Seconds()))return;
+                if (Present(frame.real.Get()))
+                {
+                    presentationClock.Presented(Seconds(),effectiveMilliFPS.load()/1000.);
+                    realPresents++;
+                    lastHashKnown = frame.phaseCount != 0;
+                    if(lastHashKnown)
+                    {
+                        const auto &counts=frame.phases[0].ticket->counts;
+                        lastPresentedHash=(std::uint64_t(counts[10])<<32)|counts[11];
+                    }
+                }
+            }
+            else
+            {
+                if (IsWindowVisible(window)) ShowWindow(window, SW_HIDE);
+                displaying = false;
+                lastHashKnown = false;
+                presentationClock.Reset();
+            }
+            for (auto &phase : frame.phases) phase.ticket.reset();
+            frame.ticket.reset();
+            readyFrames.pop_front();
+        }
+    }
+    bool ProcessQueued(int index, double timestamp, double sourceInterval)
+    {
+        auto slot = std::find_if(frames.begin(), frames.end(), [](const GpuFrame &frame) { return !frame.ticket; });
+        if (slot == frames.end()) return false;
+        HRESULT acquired = mutexes[index]->AcquireSync(1, 0);
+        if (acquired == WAIT_TIMEOUT) return false;
+        if (acquired != S_OK) throw std::runtime_error("queued world ownership lost");
+        acquired = finalMutexes[index]->AcquireSync(1, 0);
+        if (acquired != S_OK)
+        {
+            Check(mutexes[index]->ReleaseSync(1), "queued world retry");
+            if (acquired == WAIT_TIMEOUT) return false;
+            throw std::runtime_error("queued UI ownership lost");
+        }
+        acquired = silhouetteMutexes[index]->AcquireSync(1, 0);
+        if (acquired != S_OK)
+        {
+            Check(finalMutexes[index]->ReleaseSync(1), "queued UI retry");
+            Check(mutexes[index]->ReleaseSync(1), "queued world retry");
+            if (acquired == WAIT_TIMEOUT) return false;
+            throw std::runtime_error("queued silhouette ownership lost");
+        }
+        auto begin = Clock::now();
+        UpdateDisplay();
+        Convert(views[index].Get(), inputView.Get());
+        Convert(finalViews[index].Get(), finalView.Get());
+        bool hasSilhouette = source->slots[index].hasSilhouette;
+        if (hasSilhouette) context->CopyResource(silhouetteFrame.Get(), openedSilhouette[index].Get());
+        context->Flush();
+        interval = sourceInterval;
+        double pairInterval=lastTimestamp>0?timestamp-lastTimestamp:sourceInterval;
+        lastTimestamp = timestamp;
+        if (!slot->real)
+        {
+            D3D11_TEXTURE2D_DESC desc{};
+            input->GetDesc(&desc);
+            desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+            Check(device->CreateTexture2D(&desc, nullptr, &slot->real), "queued real image");
+            Check(device->CreateShaderResourceView(slot->real.Get(), nullptr, &slot->realView), "queued real SRV");
+            desc.BindFlags |= D3D11_BIND_RENDER_TARGET;
+            Check(device->CreateTexture2D(&desc, nullptr, &slot->composed), "queued composed image");
+            Check(device->CreateRenderTargetView(slot->composed.Get(), nullptr, &slot->target), "queued compositor target");
+            Check(device->CreateShaderResourceView(slot->composed.Get(), nullptr, &slot->composedView), "queued composed SRV");
+        }
+        unsigned count = targetPlanner.Count(pairInterval, effectiveMilliFPS.load()/1000., Visible(), phaseCapacity);
+        if (!adaptiveCadence.load()) count = std::min(count, 1u);
+        slot->requested = count != 0;
+        slot->timestamp = timestamp;
+        slot->cadence = interval;
+        slot->resolved = slot->late = false;
+        // AI-generated comment: Two buffers cover the current GPU frame and one frame of presentation lookahead.
+        slot->deadline = timestamp + interval * frames.size();
+        slot->ticket = fruc->Submit(input.Get(), timestamp, false, true,
+            hasSilhouette ? silhouetteFrame.Get() : nullptr);
+        context->Flush();
+        Check(silhouetteMutexes[index]->ReleaseSync(0), "queued silhouette release");
+        Check(finalMutexes[index]->ReleaseSync(0), "queued UI release");
+        Check(mutexes[index]->ReleaseSync(0), "queued world release");
+        {
+            std::lock_guard<std::mutex> lock(stateMutex);
+            source->slots[index].status = 0;
+        }
+        context->CopyResource(slot->real.Get(), finalImage.Get());
+        slot->phaseCount = 0;
+        slot->nextPhase = 0;
+        if (count && fruc->PrepareFlow(slot->ticket))
+        {
+            flowExecutions++;
+            Compose(slot->target.Get(), fruc->ReferenceImage(slot->ticket));
+            if (slot->phases.size()<count) slot->phases.resize(count);
+            for(unsigned i=0;i<count;++i)
+            {
+                auto &phase=slot->phases[i];
+                if(!phase.composed)
+                {
+                    D3D11_TEXTURE2D_DESC desc{};
+                    slot->composed->GetDesc(&desc);
+                    Check(device->CreateTexture2D(&desc,nullptr,&phase.composed),"temporal phase image");
+                    Check(device->CreateRenderTargetView(phase.composed.Get(),nullptr,&phase.target),"temporal phase target");
+                    Check(device->CreateShaderResourceView(phase.composed.Get(),nullptr,&phase.view),"temporal phase view");
+                }
+                phase.resolved=false;
+                phase.ticket=fruc->Phase(slot->ticket,float(i+1)/float(count+1));
+                Compose(phase.target.Get());
+                fruc->CheckComposed(phase.ticket,phase.view.Get(),slot->realView.Get(),
+                    i ? slot->phases[i-1].view.Get() : slot->composedView.Get());
+                fruc->Seal(phase.ticket);
+                slot->phaseCount++;
+                qualityRequests++;
+            }
+        }
+        else if(count) {qualityRequests++;qualityReasons[Interpolator::NoHistory]++;}
+        scheduledPhases=slot->phaseCount;
+        fruc->Seal(slot->ticket);
+        readyFrames.push_back(static_cast<unsigned>(slot - frames.begin()));
+        workerCallUs = static_cast<long long>(std::chrono::duration<double, std::micro>(Clock::now() - begin).count());
+        return true;
+    }
+#ifdef KOE_CAPTURE_AUDIT
     void Process(int index, double timestamp, double sourceInterval, std::uint64_t serial)
     {
         if (mutexes[index]->AcquireSync(1, 2000) != S_OK)
             throw std::runtime_error("worker mutex acquire timeout/failure");
         if (finalMutexes[index]->AcquireSync(1, 2000) != S_OK)
             throw std::runtime_error("worker UI mutex timeout");
+        if (silhouetteMutexes[index]->AcquireSync(1, 2000) != S_OK)
+            throw std::runtime_error("worker silhouette mutex timeout");
         Convert(views[index].Get(), inputView.Get());
         Convert(finalViews[index].Get(), finalView.Get());
+        bool hasSilhouette = source->slots[index].hasSilhouette;
+        if (hasSilhouette) context->CopyResource(silhouetteFrame.Get(), openedSilhouette[index].Get());
         context->Flush();
+        Check(silhouetteMutexes[index]->ReleaseSync(0), "worker silhouette release");
         Check(finalMutexes[index]->ReleaseSync(0), "worker UI release");
         Check(mutexes[index]->ReleaseSync(0), "worker release");
 #ifdef KOE_CAPTURE_AUDIT
@@ -794,9 +1144,11 @@ float4 main(float4 position : SV_Position) : SV_Target
         }
         if (!auditDone && !auditDirectory.empty() && ++auditAge >= 30 && auditIndex < 3)
         {
-            if (auditIndex > 0 && serial != auditSerials[auditIndex - 1] + 1)
+            if (auditIndex > 0 && serial <= auditSerials[auditIndex - 1])
                 auditIndex = 0;
             Snapshot(input.Get(), auditWorld[auditIndex]);
+            auditHasSilhouette[auditIndex] = hasSilhouette;
+            if(hasSilhouette) Snapshot(silhouetteFrame.Get(), auditSilhouette[auditIndex]);
             auditTimes[auditIndex] = timestamp;
             auditSerials[auditIndex] = serial;
             auditIndex++;
@@ -816,15 +1168,24 @@ float4 main(float4 position : SV_Position) : SV_Target
 #ifdef KOE_DIRECT_FLOW
         bool midpointRequested =
             Visible() && cadencePolicy.Midpoint(interval, refreshInterval, true, adaptiveCadence.load());
-        auto ticket = fruc->Submit(input.Get(), timestamp, midpointRequested);
+        auto ticket = fruc->Submit(input.Get(), timestamp, midpointRequested, false,
+            hasSilhouette ? silhouetteFrame.Get() : nullptr);
         if (midpointRequested)
         {
             qualityRequests++;
-            // AI-generated comment: Only the presentation worker can wait, within this frame's half-
-            // interval budget. A late/unknown decision is a veto, never approval.
-            double remaining = std::max(0.0, timestamp + interval * .5 - Seconds());
+            auto inputBegin = Seconds();
+            double inputBudget = FrameBudget::Input(timestamp, interval, inputBegin);
+            bool ready = fruc->WaitForInput(ticket, static_cast<unsigned>(std::ceil(inputBudget * 1000)));
+            double readyAt = Seconds();
+            inputWaitUs = static_cast<long long>((readyAt - inputBegin) * 1000000);
+            double remaining = ready ? FrameBudget::Decision(timestamp, interval, readyAt, Seconds()) : 0;
             midpointAllowed = fruc->Generate(ticket, static_cast<unsigned>(remaining * 1000));
+            decisionAgeUs = static_cast<long long>((Seconds() - timestamp) * 1000000);
             qualityReasons[static_cast<int>(ticket->rejection)]++;
+            if (ticket->flowEstimated)
+                flowExecutions++;
+            if (ticket->earlyVeto)
+                preflightVetoes++;
         }
 #else
         auto ticket = fruc->Submit(input.Get(), timestamp);
@@ -846,14 +1207,16 @@ float4 main(float4 position : SV_Position) : SV_Target
         }
 #endif
         bool midPresented = false;
-        if (!Visible())
+        // AI-generated comment: Rejected work must not delay the game's normal real-frame presentation.
+        if (!Visible() || !midpointAllowed)
         {
             pending.push_back({ticket, false});
 #ifdef KOE_CAPTURE_AUDIT
-            auditIndex = 0;
             auditComposed.Reset();
+            SaveAudit();
 #endif
-            ShowWindow(window, SW_HIDE);
+            if (IsWindowVisible(window))
+                ShowWindow(window, SW_HIDE);
             return;
         }
         Show();
@@ -880,6 +1243,7 @@ float4 main(float4 position : SV_Position) : SV_Target
         SaveAudit();
 #endif
     }
+#endif
 };
 static void Worker()
 {
@@ -894,6 +1258,16 @@ static void Worker()
             {
                 TranslateMessage(&message);
                 DispatchMessageW(&message);
+            }
+            if (presenter)
+            {
+                std::shared_ptr<Shared> observed;
+                {
+                    std::lock_guard<std::mutex> lock(stateMutex);
+                    observed = shared;
+                }
+                if (presenter->source == observed && presenter->Visible())
+                    presenter->ResolveFrames();
             }
             std::shared_ptr<Shared> current;
             int index = -1;
@@ -919,13 +1293,23 @@ static void Worker()
             }
             if (!enabled.load() || !allowed.load() || !current || GetForegroundWindow() != current->window)
             {
+                if (index >= 0)
+                {
+                    std::lock_guard<std::mutex> lock(stateMutex);
+                    current->slots[index].status = 1;
+                }
                 if (presenter)
+                {
+                    presenter->sourceQueue.Disable();
+                    presenter->displaying = false;
                     ShowWindow(presenter->window, SW_HIDE);
+                }
                 WaitForSingleObject(wakeEvent, 10);
                 continue;
             }
             if (!presenter || presenter->source != current)
                 presenter.reset(new Presenter(current));
+            presenter->sourceQueue.Enable(current->source.Get());
             if (index >= 0)
             {
                 // AI-generated comment: Release older queued images without interpolation; never build latency.
@@ -941,9 +1325,21 @@ static void Worker()
                         }
                         if (old)
                         {
-                            if (presenter->mutexes[i]->AcquireSync(1, 2000) != S_OK ||
-                                presenter->finalMutexes[i]->AcquireSync(1, 2000) != S_OK)
-                                throw std::runtime_error("stale input mutex timeout");
+                            HRESULT world = presenter->mutexes[i]->AcquireSync(1, 0);
+                            HRESULT ui = world == S_OK ? presenter->finalMutexes[i]->AcquireSync(1, 0) : WAIT_TIMEOUT;
+                            HRESULT hull = ui == S_OK ? presenter->silhouetteMutexes[i]->AcquireSync(1, 0) : WAIT_TIMEOUT;
+                            if (world != S_OK || ui != S_OK || hull != S_OK)
+                            {
+                                if (ui == S_OK) Check(presenter->finalMutexes[i]->ReleaseSync(1), "stale UI retry");
+                                if (world == S_OK) Check(presenter->mutexes[i]->ReleaseSync(1), "stale input retry");
+                                if ((world != S_OK && world != WAIT_TIMEOUT) || (ui != S_OK && ui != WAIT_TIMEOUT)
+                                    || (hull != S_OK && hull != WAIT_TIMEOUT))
+                                    throw std::runtime_error("stale input ownership lost");
+                                std::lock_guard<std::mutex> lock(stateMutex);
+                                current->slots[i].status = 1;
+                                continue;
+                            }
+                            Check(presenter->silhouetteMutexes[i]->ReleaseSync(0), "stale silhouette release");
                             Check(presenter->finalMutexes[i]->ReleaseSync(0), "stale UI release");
                             Check(presenter->mutexes[i]->ReleaseSync(0), "stale input release");
                             std::lock_guard<std::mutex> lock(stateMutex);
@@ -951,13 +1347,24 @@ static void Worker()
                             skipped++;
                         }
                     }
+#ifdef KOE_CAPTURE_AUDIT
                 presenter->Process(index, timestamp, cadence, serial);
+#else
+                if (!presenter->ProcessQueued(index, timestamp, cadence))
+                {
+                    {
+                        std::lock_guard<std::mutex> lock(stateMutex);
+                        current->slots[index].status = 1;
+                    }
+                    WaitForSingleObject(wakeEvent, 1);
+                }
+#endif
             }
             else
             {
                 if (!presenter->Visible())
                     ShowWindow(presenter->window, SW_HIDE);
-                WaitForSingleObject(wakeEvent, 5);
+                WaitForSingleObject(wakeEvent, 1);
             }
         }
     }
@@ -1071,6 +1478,31 @@ extern "C" __declspec(dllexport) void SetFrameGeneration(int on, int scene)
 extern "C" __declspec(dllexport) void SetAdaptiveFrameCadence(int on)
 {
     adaptiveCadence = on != 0;
+}
+extern "C" __declspec(dllexport) void SetFrameGenerationTargetFPS(int fps)
+{
+    requestedTargetFPS = std::max(TargetFrameRate::Minimum, fps);
+    if(wakeEvent) SetEvent(wakeEvent);
+}
+extern "C" __declspec(dllexport) double GetFrameGenerationMonitorHz(HWND window)
+{
+    return ReadDisplayRefresh(window ? window : GetForegroundWindow());
+}
+extern "C" __declspec(dllexport) void ConfigureFrameGenerationTarget(int full, double target)
+{
+    requestedTargetFPS=std::isfinite(target) && target>0 ? target : TargetFrameRate::Default;
+    fullGeneration=full!=0;
+    adaptiveCadence=true;
+    if(wakeEvent)SetEvent(wakeEvent);
+}
+extern "C" __declspec(dllexport) void ReadFrameGenerationTarget(long long *values, int count)
+{
+    if(!values || count!=5)return;
+    values[0]=static_cast<long long>(std::llround(std::min(requestedTargetFPS.load(),double(INT_MAX))*1000));
+    values[1]=monitorMilliHz.load();
+    values[2]=effectiveMilliFPS.load();
+    values[3]=scheduledPhases.load();
+    values[4]=fullGeneration.load()?1:0;
 }
 extern "C" __declspec(dllexport) void InvalidateFrameGenerationHistory()
 {
@@ -1228,6 +1660,29 @@ extern "C" __declspec(dllexport) int TestFrameGenerationCapture(long long *resul
                 }
             }
         value.context->Unmap(stage.Get(), 0);
+        auto maskDesc = td;
+        maskDesc.Usage = D3D11_USAGE_DEFAULT;
+        maskDesc.CPUAccessFlags = 0;
+        maskDesc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+        Check(value.source->CreateTexture2D(&maskDesc, nullptr, &value.cleanSilhouette), "capture test silhouette");
+        Check(value.source->CreateRenderTargetView(value.cleanSilhouette.Get(), nullptr, &value.silhouetteTarget), "capture test silhouette target");
+        CaptureWorld(value, image.Get(), DXGI_FORMAT_R16G16B16A16_TYPELESS, true);
+        value.context->CopyResource(stage.Get(), value.cleanSilhouette.Get());
+        Check(value.context->Map(stage.Get(), 0, D3D11_MAP_READ, 0, &m), "silhouette orientation map");
+        for(unsigned y=0;y<h;++y)
+            for(unsigned x=0;x<w;++x)
+            {
+                auto p=static_cast<const unsigned char *>(m.pData)+size_t(y)*m.RowPitch+x*4;
+                unsigned indices[]={x%5,y%5,(x+y)%5,4};
+                for(unsigned c=0;c<4;++c)
+                {
+                    bool tie=c<3 && indices[c]==2 && p[c]==127;
+                    if(tie)result[4]++;
+                    else result[0]+=p[c]!=expected[indices[c]];
+                    result[3]++;
+                }
+            }
+        value.context->Unmap(stage.Get(),0);
         return result[0] || result[1] || result[2] ? 2 : 0;
     }
     catch (const std::exception &e)

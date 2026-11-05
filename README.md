@@ -40,6 +40,8 @@ Windows x64 / KSP 1.12.5 is the tested platform. D3D11 modules require their res
 | FAR / FreeIVA / Waterfall / Firefly | Renderer and collider lookups, refresh traversal, redundant calls and inactive-effect work |
 | Rendering | Deferred light integration and optional frame interpolation with quality/deadline checks |
 
+Frame interpolation defaults to conservative mode: a 60 FPS target, capped at the current monitor refresh rate. Its separate `GameData/KerbalOverEngineering/FrameGeneration.cfg` includes the experimental `FullGeneration` flag. Set it to `true` to fill toward `TargetFPS`, initially set to your monitor's refresh rate when the config is created. Both modes have a hard limit of three additional frames per rendered frame and never target more than the monitor can display. Quality checks can reject frames, so the requested rate is not guaranteed.
+
 Integrations are grouped under [`stock/`](stock/) and [`mod/`](mod/). The complete option list and dependency categories are in [`Catalog`](core/Options/OptionStore.cs).
 
 ## Measured performance

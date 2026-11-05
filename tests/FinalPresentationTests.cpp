@@ -1,5 +1,6 @@
 // AI-generated comment: Real DXGI dispatch + a synthetic external OSD hook. No game/RTSS settings.
 #include "FinalPresentation.h"
+#include "GpuQueueLimit.h"
 #include "MinHook.h"
 #include <d3d11_1.h>
 #include <wrl/client.h>
@@ -183,6 +184,33 @@ int main()
         ComPtr<IDXGISwapChain> swap;
         Check(D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0, nullptr, 0, D3D11_SDK_VERSION,
                                             &desc, &swap, &device, nullptr, &context));
+        ComPtr<IDXGIDevice1> queueDevice;
+        Check(device.As(&queueDevice));
+        UINT originalLatency{}, latency{};
+        Check(queueDevice->GetMaximumFrameLatency(&originalLatency));
+        Check(queueDevice->SetMaximumFrameLatency(3));
+        {
+            GpuQueueLimit limit;
+            limit.Enable(device.Get());
+            limit.Enable(device.Get());
+            Check(queueDevice->GetMaximumFrameLatency(&latency));
+            Require(latency == 1, "Active interpolation retained queued source frames");
+            limit.Disable();
+            Check(queueDevice->GetMaximumFrameLatency(&latency));
+            Require(latency == 3, "Disabling interpolation did not restore the source queue");
+            limit.Enable(device.Get());
+            Check(queueDevice->SetMaximumFrameLatency(2));
+        }
+        Check(queueDevice->GetMaximumFrameLatency(&latency));
+        Require(latency == 2, "Queue cleanup overwrote a later external setting");
+        Check(queueDevice->SetMaximumFrameLatency(1));
+        {
+            GpuQueueLimit limit;
+            limit.Enable(device.Get());
+        }
+        Check(queueDevice->GetMaximumFrameLatency(&latency));
+        Require(latency == 1, "An existing one-frame queue was changed on cleanup");
+        Check(queueDevice->SetMaximumFrameLatency(originalLatency));
         expectedChain = swap.Get();
         target = (*reinterpret_cast<void ***>(swap.Get()))[8];
         Require(MH_Initialize() == MH_OK, "Hook initialization");

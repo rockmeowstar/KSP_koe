@@ -1,4 +1,4 @@
-param([string]$GamePath = $env:KSP_ROOT,[string]$ReleaseVersion = '0.15.3')
+param([string]$GamePath = $env:KSP_ROOT,[string]$ReleaseVersion = '0.15.4')
 $ErrorActionPreference = 'Stop'
 if ($ReleaseVersion -notmatch '^\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?$') {
     throw 'Invalid release version'
@@ -207,7 +207,7 @@ $nativeFiles = @{
     Drag = ,@('KoeDragReduction.dll',$null)
     Cloud = @(@('KoeCloudGuard.dll','616f289df2a26ea15dbccdc8c6275ad76ca77805c96ae4661a2216b536cb2ccd'),@('base-guarded.koepatch','544be245373e4a7bc0dfa0df0a8254d4fb170738c61dcfc361afacb30bed9bee'),@('top-guarded.koepatch','97db0080cb6c833a317e746b465618a96ffb30f88ad80f31d28b649e80365131'))
     Lights = @(@('KSP_x64_Data/Plugins/KoeInstancedLights.dll','78f5ea8fd67cacfa5dd75241a542b5c4a3d71e581eb604333532cce17170193b'),@('GameData/KerbalOverEngineeringExperiments/InstancedLights/light0-ps.shdr','52f0befe1d3fa291a4bebef94502ef14c162f4a3d86cd579a87da9664249bef7'),@('GameData/KerbalOverEngineeringExperiments/InstancedLights/light0-vs.shdr','18f304a7ebaf6499cde707116f7cda855078b930ae59b750ed6b5b8a0c46e496'),@('GameData/KerbalOverEngineeringExperiments/InstancedLights/light1-ps.shdr','bddc54bcdf16b256e3fdc3eabf6ea7675717597293d40bbfc2deb397878e81c8'),@('GameData/KerbalOverEngineeringExperiments/InstancedLights/light1-vs.shdr','18f304a7ebaf6499cde707116f7cda855078b930ae59b750ed6b5b8a0c46e496'))
-    Frame = ,@('KSP_x64_Data/Plugins/KoeFrameGeneration.dll','2cccdef49fcbc8ad05094f987f83ccd359255d80cbcc82c8460d6343549bf9ca')
+    Frame = ,@('KSP_x64_Data/Plugins/KoeFrameGeneration.dll','c8b32ff38c28c58eaec86863ccf43a33742957bcc8f7def54f5f6fa63140a430')
 }
 foreach ($module in $modules) {
     $moduleName = $module.Name
