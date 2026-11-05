@@ -11,8 +11,14 @@ namespace KerbalOverEngineering.Portraits
             {
                 while (alive())
                 {
-                    if (!visible()) { yield return null; continue; }
-                    if (!original.MoveNext()) yield break;
+                    if (!visible())
+                    {
+                        yield return null;
+                        continue;
+                    }
+
+                    if (!original.MoveNext())
+                        yield break;
                     object wait = original.Current;
                     yield return timedWait(wait) ? null : wait;
                 }
@@ -20,7 +26,8 @@ namespace KerbalOverEngineering.Portraits
             finally
             {
                 IDisposable disposable = original as IDisposable;
-                if (disposable != null) disposable.Dispose();
+                if (disposable != null)
+                    disposable.Dispose();
             }
         }
     }

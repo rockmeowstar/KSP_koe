@@ -1,22 +1,43 @@
 Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
-function Write-KoeZip([string]$SourceDirectory,[string]$Destination,[string[]]$Paths=@('GameData')) {
- $taskSource=[IO.Path]::GetFullPath($SourceDirectory).TrimEnd('\','/')+[IO.Path]::DirectorySeparatorChar
- $taskDestination=[IO.Path]::GetFullPath($Destination)
- $taskTemporary=$taskDestination+'.'+[Guid]::NewGuid().ToString('N')+'.tmp'
- try {
-  $taskZip=[IO.Compression.ZipFile]::Open($taskTemporary,[IO.Compression.ZipArchiveMode]::Create)
-  try {
-   foreach($taskRelative in $Paths){
-    $taskPath=[IO.Path]::GetFullPath((Join-Path $taskSource $taskRelative))
-    if(-not $taskPath.StartsWith($taskSource,[StringComparison]::OrdinalIgnoreCase)){throw 'ZIP input must stay inside its source directory'}
-    $taskFiles=if((Get-Item -LiteralPath $taskPath).PSIsContainer){Get-ChildItem -LiteralPath $taskPath -File -Recurse}else{Get-Item -LiteralPath $taskPath}
-    foreach($taskFile in $taskFiles | Sort-Object FullName){
-     $taskName=$taskFile.FullName.Substring($taskSource.Length).Replace('\','/')
-     [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($taskZip,$taskFile.FullName,$taskName,[IO.Compression.CompressionLevel]::Optimal) | Out-Null
+function Write-KoeZip([string]$SourceDirectory,[string]$Destination,[string[]]$Paths = @('GameData'),[string[]]$ExcludePaths = @()) {
+    $sourceRoot = [IO.Path]::GetFullPath($SourceDirectory).TrimEnd('\','/')+[IO.Path]::DirectorySeparatorChar
+    $destinationPath = [IO.Path]::GetFullPath($Destination)
+    $temporaryPath = $destinationPath+'.'+[Guid]::NewGuid().ToString('N')+'.tmp'
+    try {
+        $archive = [IO.Compression.ZipFile]::Open($temporaryPath,[IO.Compression.ZipArchiveMode]::Create)
+        try {
+            foreach ($relativePath in $Paths) {
+                $inputPath = [IO.Path]::GetFullPath((Join-Path $sourceRoot $relativePath))
+                if (-not $inputPath.StartsWith($sourceRoot,[StringComparison]::OrdinalIgnoreCase)) {
+                    throw 'ZIP input must stay inside its source directory'
+                }
+                $inputFiles = if ((Get-Item -LiteralPath $inputPath).PSIsContainer) {
+                    Get-ChildItem -LiteralPath $inputPath -File -Recurse
+                }
+                else {
+                    Get-Item -LiteralPath $inputPath
+                }
+                foreach ($sourceFile in $inputFiles | Sort-Object FullName) {
+                    $entryName = $sourceFile.FullName.Substring($sourceRoot.Length).Replace('\','/')
+                    if ($ExcludePaths -contains $entryName) { continue }
+                    [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive,$sourceFile.FullName,$entryName,[IO.Compression.CompressionLevel]::Optimal) | Out-Null
+                }
+            }
+        }
+        finally {
+            $archive.Dispose()
+        }
+        if (Test-Path -LiteralPath $destinationPath) {
+            [IO.File]::Replace($temporaryPath,$destinationPath,[NullString]::Value)
+        }
+        else {
+            [IO.File]::Move($temporaryPath,$destinationPath)
+        }
     }
-   }
-  }finally{$taskZip.Dispose()}
-  if(Test-Path -LiteralPath $taskDestination){[IO.File]::Replace($taskTemporary,$taskDestination,[NullString]::Value)}else{[IO.File]::Move($taskTemporary,$taskDestination)}
- }finally{if(Test-Path -LiteralPath $taskTemporary){Remove-Item -LiteralPath $taskTemporary}}
+    finally {
+        if (Test-Path -LiteralPath $temporaryPath) {
+            Remove-Item -LiteralPath $temporaryPath
+        }
+    }
 }

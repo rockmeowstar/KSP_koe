@@ -13,161 +13,413 @@ namespace CloudLoopFix
 {
     // Shared runtime: production and diagnostics compile the same visibility implementation.
 #if KOE_COVERAGE_PRODUCTION
-    [KSPAddon(KSPAddon.Startup.Instantly,true)]
+    [KSPAddon(KSPAddon.Startup.Instantly, true)]
 #endif
-    public class CoverageCull:MonoBehaviour
+    public class CoverageCull : MonoBehaviour
     {
-        static FieldInfo coverage,coveragePath,rotation,body,outer,boundsField,boundLayer;
-        static FieldInfo mapType,mapMask,mapTexture,flowMap,detailTex,painterTiles,painterMasks,mainMaterial,reflectionMaterial,isReflection;
-        static Func<Vector3,Vector2> getUV;
+        static FieldInfo coverage, coveragePath, rotation, body, outer, boundsField, boundLayer;
+        static FieldInfo mapType, mapMask, mapTexture, flowMap, detailTex, painterTiles, painterMasks, mainMaterial, reflectionMaterial, isReflection;
+        static Func<Vector3, Vector2> getUV;
         static bool wide;
         static bool flowCoverageIndependent;
-        static readonly List<int> remove=new List<int>();
-        static readonly Dictionary<object,bool> decisions=new Dictionary<object,bool>();
-        sealed class Binding{public object Wrapper;public Texture2D Texture;}
-        static readonly ConditionalWeakTable<Material,Binding> bindings=new ConditionalWeakTable<Material,Binding>();
-        sealed class Candidate{public bool Eligible;public string Path;public object Wrapper,Type,Mask;public Texture2D Texture;public uint UpdateCount;public Task<CoverageZeroMap> Map;public CoverageZeroMap Proof;public bool Reported;}
-        static readonly ConditionalWeakTable<object,Candidate> candidates=new ConditionalWeakTable<object,Candidate>();
-        static long checks,culled;
-        public static Action<string,string> Reporter;
-        static void Emit(string kind,string message){if(Reporter!=null)Reporter(kind,message);else Debug.Log("[CoverageCullFix] "+kind+": "+message);}
+        static readonly List<int> remove = new List<int>();
+        static readonly Dictionary<object, bool> decisions = new Dictionary<object, bool>();
+        sealed class Binding
+        {
+            public object Wrapper;
+            public Texture2D Texture;
+        }
+
+        static readonly ConditionalWeakTable<Material, Binding> bindings = new ConditionalWeakTable<Material, Binding>();
+        sealed class Candidate
+        {
+            public bool Eligible;
+            public string Path;
+            public object Wrapper, Type, Mask;
+            public Texture2D Texture;
+            public uint UpdateCount;
+            public Task<CoverageZeroMap> PendingMap;
+            public CoverageZeroMap CoverageMap;
+            public bool Reported;
+        }
+
+        static readonly ConditionalWeakTable<object, Candidate> candidates = new ConditionalWeakTable<object, Candidate>();
+        static long checks, culled;
+        public static Action<string, string> Reporter;
+        static void Emit(string kind, string message)
+        {
+            if (Reporter != null)
+                Reporter(kind, message);
+            else
+                Debug.Log("[CoverageCullFix] " + kind + ": " + message);
+        }
+
         Harmony harmony;
         public void Awake()
         {
-            if (!KerbalOverEngineering.Options.Settings.Enabled("EVE.CoverageZeroCull")) { Destroy(this); return; }
+            if (!KerbalOverEngineering.Options.Settings.Enabled("EVE.CoverageZeroCull"))
+            {
+                Destroy(this);
+                return;
+            }
+
 #if KOE_COVERAGE_PRODUCTION
-            wide=true;if(Environment.GetEnvironmentVariable("KOE_COVERAGE_CULL")=="0"){Destroy(this);return;}
+            wide = true;
+            if (Environment.GetEnvironmentVariable("KOE_COVERAGE_CULL") == "0")
+            {
+                Destroy(this);
+                return;
+            }
 #else
-            wide=Environment.GetEnvironmentVariable("KOE_EVE_COVERAGE_CULL")=="1";
-            if(!wide){Destroy(this);return;}
+            wide = Environment.GetEnvironmentVariable("KOE_EVE_COVERAGE_CULL") == "1";
+            if (!wide)
+            {
+                Destroy(this);
+                return;
+            }
+
 #endif
-            harmony=new Harmony("local.kerbaloverengineering.eve-coverage-cull");
-            try{
-                var assembly=AppDomain.CurrentDomain.GetAssemblies().Single(a=>a.GetName().Name=="Atmosphere");
-                if(assembly.ManifestModule.ModuleVersionId!=new Guid("8150e218-893c-4b2c-a852-b674a3006cfd"))throw new NotSupportedException("Unknown EVE");
-                var volume=assembly.GetType("Atmosphere.CloudsRaymarchedVolume",true);
-                coverage=AccessTools.Field(volume,"coverageMap");rotation=AccessTools.Field(volume,"cloudRotationMatrix");
-                body=AccessTools.Field(volume,"parentCelestialBody");outer=AccessTools.Field(volume,"outerSphereRadius");
-                coveragePath=AccessTools.Field(coverage.FieldType,"value");
-                if(new[]{coverage,rotation,body,outer,coveragePath}.Any(f=>f==null))throw new MissingFieldException("Aurora visibility fields");
-                if(wide){
-                    Type wrapper=coverage.FieldType;
-                    if(wrapper.Assembly.ManifestModule.ModuleVersionId!=new Guid("752c32c2-9c32-40be-bad9-8a27f80a0a26"))throw new NotSupportedException("Unknown EVE UV mapping");
-                    mapType=AccessTools.Field(wrapper,"type");mapMask=AccessTools.Field(wrapper,"alphaMask");mapTexture=AccessTools.Field(wrapper,"textureValue");
-                    flowMap=AccessTools.Field(volume,"flowMap");detailTex=AccessTools.Field(volume,"useDetailTex");painterTiles=AccessTools.Field(volume,"painterTiles");painterMasks=AccessTools.Field(volume,"painterTileMasks");
-                    mainMaterial=AccessTools.Field(volume,"raymarchedCloudMaterial");reflectionMaterial=AccessTools.Field(volume,"reflectionProbeRaymarchedCloudMaterial");
-                    if(new[]{mapType,mapMask,mapTexture,flowMap,detailTex,painterTiles,painterMasks,mainMaterial,reflectionMaterial}.Any(f=>f==null))throw new MissingFieldException("Coverage proof fields");
-                    flowCoverageIndependent=CoverageFlowProof.KnownAssets();
-                    getUV=(Func<Vector3,Vector2>)Delegate.CreateDelegate(typeof(Func<Vector3,Vector2>),AccessTools.DeclaredMethod(wrapper,"GetEquirectangularUV",new[]{typeof(Vector3)}));
+            harmony = new Harmony("local.kerbaloverengineering.eve-coverage-cull");
+            try
+            {
+                var assembly = AppDomain.CurrentDomain.GetAssemblies().Single(a => a.GetName().Name == "Atmosphere");
+                if (assembly.ManifestModule.ModuleVersionId != new Guid("8150e218-893c-4b2c-a852-b674a3006cfd"))
+                    throw new NotSupportedException("The EVE assembly does not match the build this patch supports.");
+                var volume = assembly.GetType("Atmosphere.CloudsRaymarchedVolume", true);
+                coverage = AccessTools.Field(volume, "coverageMap");
+                rotation = AccessTools.Field(volume, "cloudRotationMatrix");
+                body = AccessTools.Field(volume, "parentCelestialBody");
+                outer = AccessTools.Field(volume, "outerSphereRadius");
+                coveragePath = AccessTools.Field(coverage.FieldType, "value");
+                if (new[]
+                {
+                    coverage,
+                    rotation,
+                    body,
+                    outer,
+                    coveragePath
+                }.Any(f => f == null))
+                    throw new MissingFieldException("Aurora visibility fields");
+                if (wide)
+                {
+                    Type wrapper = coverage.FieldType;
+                    if (wrapper.Assembly.ManifestModule.ModuleVersionId != new Guid("752c32c2-9c32-40be-bad9-8a27f80a0a26"))
+                        throw new NotSupportedException("Cannot find the EVE fields used to map cloud coverage to spherical coordinates.");
+                    mapType = AccessTools.Field(wrapper, "type");
+                    mapMask = AccessTools.Field(wrapper, "alphaMask");
+                    mapTexture = AccessTools.Field(wrapper, "textureValue");
+                    flowMap = AccessTools.Field(volume, "flowMap");
+                    detailTex = AccessTools.Field(volume, "useDetailTex");
+                    painterTiles = AccessTools.Field(volume, "painterTiles");
+                    painterMasks = AccessTools.Field(volume, "painterTileMasks");
+                    mainMaterial = AccessTools.Field(volume, "raymarchedCloudMaterial");
+                    reflectionMaterial = AccessTools.Field(volume, "reflectionProbeRaymarchedCloudMaterial");
+                    if (new[]
+                    {
+                        mapType,
+                        mapMask,
+                        mapTexture,
+                        flowMap,
+                        detailTex,
+                        painterTiles,
+                        painterMasks,
+                        mainMaterial,
+                        reflectionMaterial
+                    }.Any(f => f == null))
+                        throw new MissingFieldException("Cannot find the EVE coverage fields required for culling.");
+                    flowCoverageIndependent = CoverageShaderCompatibility.KnownAssets();
+                    getUV = (Func<Vector3, Vector2>)Delegate.CreateDelegate(typeof(Func<Vector3, Vector2>), AccessTools.DeclaredMethod(wrapper, "GetEquirectangularUV", new[] { typeof(Vector3) }));
                 }
-                var renderer=assembly.GetType("Atmosphere.DeferredRaymarchedVolumetricCloudsRenderer",true);
-                boundsField=AccessTools.Field(renderer,"volumesBounds");boundLayer=AccessTools.Field(boundsField.FieldType.GetGenericArguments()[0],"layer");
-                isReflection=AccessTools.Field(renderer,"reflectionProbeCamera");if(isReflection==null)throw new MissingFieldException("Reflection camera guard");
-                if(boundLayer==null)throw new MissingFieldException("Cloud bounds layer");
-                if(wide){
-                    var binder=AccessTools.DeclaredMethod(coverage.FieldType,"ApplyTexture");var parameters=binder.GetParameters();
-                    if(parameters.Length<2||parameters[0].ParameterType!=typeof(Material)||parameters[1].ParameterType!=typeof(string))throw new NotSupportedException("Texture binding layout");
-                    harmony.Patch(binder,postfix:new HarmonyMethod(typeof(CoverageCull),"AfterBinding"));
+
+                var renderer = assembly.GetType("Atmosphere.DeferredRaymarchedVolumetricCloudsRenderer", true);
+                boundsField = AccessTools.Field(renderer, "volumesBounds");
+                boundLayer = AccessTools.Field(boundsField.FieldType.GetGenericArguments()[0], "layer");
+                isReflection = AccessTools.Field(renderer, "reflectionProbeCamera");
+                if (isReflection == null)
+                    throw new MissingFieldException("Reflection camera guard");
+                if (boundLayer == null)
+                    throw new MissingFieldException("Cloud bounds layer");
+                if (wide)
+                {
+                    var binder = AccessTools.DeclaredMethod(coverage.FieldType, "ApplyTexture");
+                    var parameters = binder.GetParameters();
+                    if (parameters.Length < 2
+                        || parameters[0].ParameterType != typeof(Material)
+                        || parameters[1].ParameterType != typeof(string))
+                        throw new NotSupportedException("Texture binding layout");
+                    harmony.Patch(binder, postfix: new HarmonyMethod(typeof(CoverageCull), "AfterBinding"));
                 }
-                harmony.Patch(AccessTools.DeclaredMethod(renderer,"OnPreRender"),prefix:new HarmonyMethod(typeof(CoverageCull),"BeforeRender"));
-                DontDestroyOnLoad(gameObject);Emit("COVERAGE_CULL_MODE","visibility across scenes/cameras; wide="+wide+"; exact BC4 zero coverage; planet occlusion bound 0.95R; three-degree margin; lighting list unchanged; unsupported cases retain original rendering");
-            }catch(Exception ex){harmony.UnpatchAll(harmony.Id);harmony=null;Emit("COVERAGE_CULL_DISABLED",ex.GetType().Name+": "+ex.Message);Destroy(this);}
+
+                harmony.Patch(AccessTools.DeclaredMethod(renderer, "OnPreRender"), prefix: new HarmonyMethod(typeof(CoverageCull), "BeforeRender"));
+                DontDestroyOnLoad(gameObject);
+                Emit(
+                    "COVERAGE_CULL_MODE",
+                    "visibility across scenes/cameras; wide=" + wide
+                    + "; exact BC4 zero coverage; planet occlusion bound 0.95R; three-degree margin; lighting list unchanged; unsupported cases retain original rendering"
+                );
+            }
+            catch (Exception ex)
+            {
+                harmony.UnpatchAll(harmony.Id);
+                harmony = null;
+                Emit("COVERAGE_CULL_DISABLED", ex.GetType().Name + ": " + ex.Message);
+                Destroy(this);
+            }
         }
-        public static void AfterBinding(object __instance,Material __0,string __1)
+
+        public static void AfterBinding(object __instance, Material __0, string __1)
         {
-            if(__1!="CloudCoverage"||__0==null)return;
-            var texture=mapTexture.GetValue(__instance) as Texture2D;
-            bindings.Remove(__0);if(texture!=null)bindings.Add(__0,new Binding{Wrapper=__instance,Texture=texture});
+            if (__1 != "CloudCoverage" || __0 == null)
+                return;
+            var texture = mapTexture.GetValue(__instance) as Texture2D;
+            bindings.Remove(__0);
+            if (texture != null)
+                bindings.Add(__0, new Binding { Wrapper = __instance, Texture = texture });
         }
-        public static bool ShouldCull(object volume,Camera camera,bool reflection)
+
+        public static bool ShouldCull(object volume, Camera camera, bool reflection)
         {
-            Candidate candidate;if(!candidates.TryGetValue(volume,out candidate)){
-                object wrapper=coverage.GetValue(volume);string source=wrapper==null?null:(string)coveragePath.GetValue(wrapper);
-                candidate=new Candidate{Path=source,Wrapper=wrapper};
-                if(wide){
-                    candidate.Eligible=false;
-                    if(wrapper!=null&&mapType.GetValue(wrapper).ToString()=="AlphaMap"&&mapMask.GetValue(wrapper).ToString()=="ALPHAMAP_R"&&CoverageNeutralFlow(volume,false)&&!(bool)detailTex.GetValue(volume)&&!HasItems(painterTiles.GetValue(volume))&&!HasItems(painterMasks.GetValue(volume))){
-                        candidate.Type=mapType.GetValue(wrapper);candidate.Mask=mapMask.GetValue(wrapper);
-                        candidate.Texture=mapTexture.GetValue(wrapper) as Texture2D;
-                        if(candidate.Texture!=null&&candidate.Texture.format==TextureFormat.BC4&&candidate.Texture.isReadable&&candidate.Texture.mipmapCount==1&&candidate.Texture.anisoLevel<=1){
-                            int width=candidate.Texture.width,height=candidate.Texture.height;
-                            if((long)((width+3)/4)*((height+3)/4)<=4*1024*1024){
-                                candidate.UpdateCount=candidate.Texture.updateCount;
+            Candidate candidate;
+            if (!candidates.TryGetValue(volume, out candidate))
+            {
+                object wrapper = coverage.GetValue(volume);
+                string source = wrapper == null ? null : (string)coveragePath.GetValue(wrapper);
+                candidate = new Candidate
+                {
+                    Path = source,
+                    Wrapper = wrapper
+                };
+                if (wide)
+                {
+                    candidate.Eligible = false;
+                    if (wrapper != null
+                        && mapType.GetValue(wrapper).ToString() == "AlphaMap"
+                        && mapMask.GetValue(wrapper).ToString() == "ALPHAMAP_R"
+                        && CoverageNeutralFlow(volume, false)
+                        && !(bool)detailTex.GetValue(volume)
+                        && !HasItems(painterTiles.GetValue(volume))
+                        && !HasItems(painterMasks.GetValue(volume)))
+                    {
+                        candidate.Type = mapType.GetValue(wrapper);
+                        candidate.Mask = mapMask.GetValue(wrapper);
+                        candidate.Texture = mapTexture.GetValue(wrapper) as Texture2D;
+                        if (candidate.Texture != null
+                            && candidate.Texture.format == TextureFormat.BC4
+                            && candidate.Texture.isReadable
+                            && candidate.Texture.mipmapCount == 1
+                            && candidate.Texture.anisoLevel <= 1)
+                        {
+                            int width = candidate.Texture.width, height = candidate.Texture.height;
+                            if ((long)((width + 3) / 4) * ((height + 3) / 4) <= 4 * 1024 * 1024)
+                            {
+                                candidate.UpdateCount = candidate.Texture.updateCount;
                                 byte[] raw;
-                                try{raw=candidate.Texture.GetRawTextureData();}catch(UnityException){raw=null;}
-                                if(raw!=null&&candidate.UpdateCount==candidate.Texture.updateCount){
-                                    candidate.Eligible=true;candidate.Map=Task.Run(()=>{try{return new CoverageZeroMap(width,height,raw);}catch(IOException){return null;}catch(NotSupportedException){return null;}});
+                                try
+                                {
+                                    raw = candidate.Texture.GetRawTextureData();
+                                }
+                                catch (UnityException)
+                                {
+                                    raw = null;
+                                }
+
+                                if (raw != null && candidate.UpdateCount == candidate.Texture.updateCount)
+                                {
+                                    candidate.Eligible = true;
+                                    candidate.PendingMap = Task.Run(() =>
+                                    {
+                                        try
+                                        {
+                                            return new CoverageZeroMap(width, height, raw);
+                                        }
+                                        catch (IOException)
+                                        {
+                                            return null;
+                                        }
+                                        catch (NotSupportedException)
+                                        {
+                                            return null;
+                                        }
+                                    });
                                 }
                             }
                         }
                     }
                 }
-                if(wide)Emit("COVERAGE_CULL_SOURCE","path="+source+"; eligible="+candidate.Eligible+"; type="+(wrapper==null?"none":mapType.GetValue(wrapper).ToString())+"; mask="+(wrapper==null?"none":mapMask.GetValue(wrapper).ToString())+"; flowAssets="+flowCoverageIndependent+"; flow="+(flowMap.GetValue(volume)!=null)+"; flowNeutral="+CoverageNeutralFlow(volume,false)+"; detail="+detailTex.GetValue(volume)+"; painter="+(HasItems(painterTiles.GetValue(volume))||HasItems(painterMasks.GetValue(volume)))+"; texture="+(candidate.Texture==null?"none":candidate.Texture.width+"x"+candidate.Texture.height+"; mips="+candidate.Texture.mipmapCount+"; aniso="+candidate.Texture.anisoLevel+"; format="+candidate.Texture.format+"; readable="+candidate.Texture.isReadable));
-                candidates.Add(volume,candidate);
+
+                if (wide)
+                    Emit(
+                        "COVERAGE_CULL_SOURCE",
+                        "path=" + source
+                        + "; eligible=" + candidate.Eligible
+                        + "; type=" + (wrapper == null ? "none" : mapType.GetValue(wrapper).ToString())
+                        + "; mask=" + (wrapper == null ? "none" : mapMask.GetValue(wrapper).ToString())
+                        + "; flowAssets=" + flowCoverageIndependent
+                        + "; flow=" + (flowMap.GetValue(volume) != null)
+                        + "; flowNeutral=" + CoverageNeutralFlow(volume, false)
+                        + "; detail=" + detailTex.GetValue(volume)
+                        + "; painter=" + (HasItems(painterTiles.GetValue(volume))
+                        || HasItems(painterMasks.GetValue(volume)))
+                        + "; texture=" + (candidate.Texture == null ? "none" : candidate.Texture.width
+                        + "x" + candidate.Texture.height
+                        + "; mips=" + candidate.Texture.mipmapCount
+                        + "; aniso=" + candidate.Texture.anisoLevel
+                        + "; format=" + candidate.Texture.format
+                        + "; readable=" + candidate.Texture.isReadable)
+                    );
+                candidates.Add(volume, candidate);
             }
-            if(!candidate.Eligible)return false;
-            object currentCoverage=coverage.GetValue(volume);
-            if(currentCoverage==null||!ReferenceEquals(currentCoverage,candidate.Wrapper)||(string)coveragePath.GetValue(currentCoverage)!=candidate.Path)return false;checks++;
-            CoverageZeroMap proof=null;
-            if(wide){
-                if(!candidate.Reported){
-                    if(!candidate.Map.IsCompleted)return false;
-                    candidate.Proof=candidate.Map.IsFaulted||candidate.Map.IsCanceled?null:candidate.Map.Result;candidate.Map=null;candidate.Reported=true;
-                    Emit("COVERAGE_CULL_MAP","path="+candidate.Path+"; ready="+(candidate.Proof!=null)+"; source=live BC4 texture; no GPU readback");
+
+            if (!candidate.Eligible)
+                return false;
+            object currentCoverage = coverage.GetValue(volume);
+            if (currentCoverage == null
+                || !ReferenceEquals(currentCoverage, candidate.Wrapper)
+                || (string)coveragePath.GetValue(currentCoverage) != candidate.Path)
+                return false;
+            checks++;
+            CoverageZeroMap coverageMap = null;
+            if (wide)
+            {
+                if (!candidate.Reported)
+                {
+                    if (!candidate.PendingMap.IsCompleted)
+                        return false;
+                    candidate.CoverageMap = candidate.PendingMap.IsFaulted || candidate.PendingMap.IsCanceled ? null : candidate.PendingMap.Result;
+                    candidate.PendingMap = null;
+                    candidate.Reported = true;
+                    Emit("COVERAGE_CULL_MAP", "path=" + candidate.Path
+                        + "; ready=" + (candidate.CoverageMap != null)
+                        + "; source=live BC4 texture; no GPU readback");
                 }
-                proof=candidate.Proof;
-                if(proof==null||candidate.Texture==null||!ReferenceEquals(mapTexture.GetValue(currentCoverage),candidate.Texture)||!Equals(mapType.GetValue(currentCoverage),candidate.Type)||!Equals(mapMask.GetValue(currentCoverage),candidate.Mask)||candidate.Texture.updateCount!=candidate.UpdateCount||candidate.Texture.format!=TextureFormat.BC4||candidate.Texture.width!=proof.Width||candidate.Texture.height!=proof.Height||candidate.Texture.mipmapCount!=1||candidate.Texture.anisoLevel>1)return false;
-                var material=(Material)(reflection?reflectionMaterial:mainMaterial).GetValue(volume);
+
+                coverageMap = candidate.CoverageMap;
+                if (coverageMap == null
+                    || candidate.Texture == null
+                    || !ReferenceEquals(mapTexture.GetValue(currentCoverage), candidate.Texture)
+                    || !Equals(mapType.GetValue(currentCoverage), candidate.Type)
+                    || !Equals(mapMask.GetValue(currentCoverage), candidate.Mask)
+                    || candidate.Texture.updateCount != candidate.UpdateCount
+                    || candidate.Texture.format != TextureFormat.BC4
+                    || candidate.Texture.width != coverageMap.Width
+                    || candidate.Texture.height != coverageMap.Height
+                    || candidate.Texture.mipmapCount != 1
+                    || candidate.Texture.anisoLevel > 1)
+                    return false;
+                var material = (Material)(reflection ? reflectionMaterial : mainMaterial).GetValue(volume);
                 Binding binding;
-                if(material==null||!bindings.TryGetValue(material,out binding)||!ReferenceEquals(binding.Wrapper,currentCoverage)||binding.Texture!=candidate.Texture)return false;
-                // The original setter is authoritative: these shader uniforms cannot be
+                if (material == null
+                    || !bindings.TryGetValue(material, out binding)
+                    || !ReferenceEquals(binding.Wrapper, currentCoverage)
+                    || binding.Texture != candidate.Texture)
+                    return false;
+                // AI-generated comment: The original setter is authoritative: these shader uniforms cannot be
                 // read using Material.GetTexture, even when HasProperty returns true.
-                if(!CoverageNeutralFlow(volume,reflection)||(bool)detailTex.GetValue(volume)||HasItems(painterTiles.GetValue(volume))||HasItems(painterMasks.GetValue(volume)))return false;
+                if (!CoverageNeutralFlow(volume, reflection)
+                    || (bool)detailTex.GetValue(volume)
+                    || HasItems(painterTiles.GetValue(volume))
+                    || HasItems(painterMasks.GetValue(volume)))
+                    return false;
             }
-            var planet=(CelestialBody)body.GetValue(volume);
-            if(planet==null)return false;
-            var terrain=planet.pqsController;
-            double minimum=terrain!=null&&terrain.isStarted?terrain.radiusMin:double.NaN;
-            double occluder=CoverageVisibility.OccluderRadius(planet.Radius,planet.ocean,minimum);
-            if(double.IsNaN(occluder))return false;
-            var matrix=(Matrix4x4)rotation.GetValue(volume);
-            for(int i=0;i<16;i++)if(float.IsNaN(matrix[i])||float.IsInfinity(matrix[i]))return false;
-            // A spherical cap stays spherical only under a rigid transform.
-            Vector3 x=matrix.GetColumn(0),y=matrix.GetColumn(1),z=matrix.GetColumn(2);
-            if(matrix.m30!=0||matrix.m31!=0||matrix.m32!=0||matrix.m33!=1||Mathf.Abs(x.sqrMagnitude-1)>0.0001f||Mathf.Abs(y.sqrMagnitude-1)>0.0001f||Mathf.Abs(z.sqrMagnitude-1)>0.0001f||Mathf.Abs(Vector3.Dot(x,y))>0.0001f||Mathf.Abs(Vector3.Dot(x,z))>0.0001f||Mathf.Abs(Vector3.Dot(y,z))>0.0001f)return false;
-            Vector3 mapped=matrix.MultiplyPoint(camera.transform.position);double radius=(camera.transform.position-planet.transform.position).magnitude;
-            if(mapped.sqrMagnitude<=0||Math.Abs(mapped.magnitude-radius)>radius*.0001)return false;
-            Vector2 uv=getUV(mapped.normalized);
-            double outerRadius=(float)outer.GetValue(volume),globalAngle=CoverageVisibility.VisibleCapDegrees(radius,outerRadius,occluder)+3;
-            return proof.EmptyCap(uv.x,uv.y,globalAngle);
+
+            var planet = (CelestialBody)body.GetValue(volume);
+            if (planet == null)
+                return false;
+            var terrain = planet.pqsController;
+            double minimum = terrain != null && terrain.isStarted ? terrain.radiusMin : double.NaN;
+            double occluder = CoverageVisibility.OccluderRadius(planet.Radius, planet.ocean, minimum);
+            if (double.IsNaN(occluder))
+                return false;
+            var matrix = (Matrix4x4)rotation.GetValue(volume);
+            for (int i = 0; i < 16; i++)
+                if (float.IsNaN(matrix[i]) || float.IsInfinity(matrix[i]))
+                    return false;
+            // AI-generated comment: A spherical cap stays spherical only under a rigid transform.
+            Vector3 x = matrix.GetColumn(0), y = matrix.GetColumn(1), z = matrix.GetColumn(2);
+            if (matrix.m30 != 0
+                || matrix.m31 != 0
+                || matrix.m32 != 0
+                || matrix.m33 != 1
+                || Mathf.Abs(x.sqrMagnitude - 1) > 0.0001f
+                || Mathf.Abs(y.sqrMagnitude - 1) > 0.0001f
+                || Mathf.Abs(z.sqrMagnitude - 1) > 0.0001f
+                || Mathf.Abs(Vector3.Dot(x, y)) > 0.0001f
+                || Mathf.Abs(Vector3.Dot(x, z)) > 0.0001f
+                || Mathf.Abs(Vector3.Dot(y, z)) > 0.0001f)
+                return false;
+            Vector3 mapped = matrix.MultiplyPoint(camera.transform.position);
+            double radius = (camera.transform.position - planet.transform.position).magnitude;
+            if (mapped.sqrMagnitude <= 0 || Math.Abs(mapped.magnitude - radius) > radius * .0001)
+                return false;
+            Vector2 uv = getUV(mapped.normalized);
+            double outerRadius = (float)outer.GetValue(volume), globalAngle = CoverageVisibility.VisibleCapDegrees(radius, outerRadius, occluder) + 3;
+            return coverageMap.EmptyCap(uv.x, uv.y, globalAngle);
         }
-        static bool HasItems(object value){var list=value as ICollection;return list!=null&&list.Count>0;}
-        static bool CoverageNeutralFlow(object volume,bool reflection)
+
+        static bool HasItems(object value)
         {
-            return flowMap.GetValue(volume)==null||(flowCoverageIndependent&&CoverageFlowProof.MaterialMatches((Material)(reflection?reflectionMaterial:mainMaterial).GetValue(volume)));
+            var list = value as ICollection;
+            return list != null && list.Count > 0;
         }
+
+        static bool CoverageNeutralFlow(object volume, bool reflection)
+        {
+            return flowMap.GetValue(volume) == null
+                || (flowCoverageIndependent
+                && CoverageShaderCompatibility.MaterialMatches((Material)(reflection ? reflectionMaterial : mainMaterial).GetValue(volume)));
+        }
+
         public static void BeforeRender(object __instance)
         {
-            Camera camera=Camera.current;if(camera==null)return;
-            var bounds=(IList)boundsField.GetValue(__instance);if(bounds==null||bounds.Count==0)return;remove.Clear();decisions.Clear();
-            bool reflection=(bool)isReflection.GetValue(__instance);
-            for(int i=0;i<bounds.Count;i++){
-                object layer=boundLayer.GetValue(bounds[i]);bool hidden;
-                if(!decisions.TryGetValue(layer,out hidden)){hidden=ShouldCull(layer,camera,reflection);decisions.Add(layer,hidden);}
-                if(hidden)remove.Add(i);
+            Camera camera = Camera.current;
+            if (camera == null)
+                return;
+            var bounds = (IList)boundsField.GetValue(__instance);
+            if (bounds == null || bounds.Count == 0)
+                return;
+            remove.Clear();
+            decisions.Clear();
+            bool reflection = (bool)isReflection.GetValue(__instance);
+            for (int i = 0; i < bounds.Count; i++)
+            {
+                object layer = boundLayer.GetValue(bounds[i]);
+                bool hidden;
+                if (!decisions.TryGetValue(layer, out hidden))
+                {
+                    hidden = ShouldCull(layer, camera, reflection);
+                    decisions.Add(layer, hidden);
+                }
+
+                if (hidden)
+                    remove.Add(i);
             }
-            // Keep at least one interval: the original renderer doesn't initialize empty ray output.
+
+            // AI-generated comment: Keep at least one interval: the original renderer doesn't initialize empty ray output.
             // volumesAdded stays intact for LightVolume, global radii, fade and reconstruction inputs.
-            int removed=ApplyRemovals(bounds,remove);
-            culled+=removed/2;
+            int removed = ApplyRemovals(bounds, remove);
+            culled += removed / 2;
             decisions.Clear();
         }
-        public static int ApplyRemovals(IList bounds,List<int> indices)
+
+        public static int ApplyRemovals(IList bounds, List<int> indices)
         {
-            if(indices.Count==bounds.Count)return 0;
-            for(int i=indices.Count-1;i>=0;i--)bounds.RemoveAt(indices[i]);return indices.Count;
+            if (indices.Count == bounds.Count)
+                return 0;
+            for (int i = indices.Count - 1; i >= 0; i--)
+                bounds.RemoveAt(indices[i]);
+            return indices.Count;
         }
-        public void OnApplicationQuit(){if(harmony!=null)Emit("COVERAGE_CULL_COUNTERS","checks="+checks+"; culled="+culled);}
-        public void OnDestroy(){if(harmony!=null)harmony.UnpatchAll(harmony.Id);}
+
+        public void OnApplicationQuit()
+        {
+            if (harmony != null)
+                Emit("COVERAGE_CULL_COUNTERS", "checks=" + checks + "; culled=" + culled);
+        }
+
+        public void OnDestroy()
+        {
+            if (harmony != null)
+                harmony.UnpatchAll(harmony.Id);
+        }
     }
 }

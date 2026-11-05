@@ -9,7 +9,6 @@ using UnityEngine;
 
 [assembly: AssemblyTitle("KerbalOverEngineering Propellant Request Fix")]
 [assembly: AssemblyVersion("1.1.0.0")]
-
 namespace PropellantRequestFix
 {
     public static class Patch
@@ -22,20 +21,30 @@ namespace PropellantRequestFix
         static Harmony harmony;
         static Func<Dictionary<string, string>, int> tagVersion;
         static Func<Localizer, bool> showKeys, overrideLock, debugMissing;
-        [ThreadStatic] static MessageCache cache;
+        [ThreadStatic]
+        static MessageCache cache;
         public static long Misses;
-
         public static void Apply()
         {
-            if (!KerbalOverEngineering.Options.Settings.Enabled("Stock.PropellantMessageCache")) return;
-            if (harmony != null) return;
+            if (!KerbalOverEngineering.Options.Settings.Enabled("Stock.PropellantMessageCache"))
+                return;
+            if (harmony != null)
+                return;
             if (typeof(ModuleEngines).Assembly.ManifestModule.ModuleVersionId != Supported)
                 throw new NotSupportedException("PropellantRequestFix supports the verified KSP 1.12.5 assembly only.");
             PrepareReaders();
             MethodInfo target = AccessTools.Method(typeof(ModuleEngines), "RequestPropellant", new[] { typeof(double) });
             var instance = new Harmony(Id);
-            try { instance.Patch(target, null, null, new HarmonyMethod(typeof(Patch), "Transpile")); }
-            catch { instance.Unpatch(target, HarmonyPatchType.All, Id); throw; }
+            try
+            {
+                instance.Patch(target, null, null, new HarmonyMethod(typeof(Patch), "Transpile"));
+            }
+            catch
+            {
+                instance.Unpatch(target, HarmonyPatchType.All, Id);
+                throw;
+            }
+
             harmony = instance;
             Debug.Log("[PropellantRequestFix] Applied: cache repeated deprivation messages; resource checks, requests, flameout and FX remain stock.");
         }
@@ -44,42 +53,110 @@ namespace PropellantRequestFix
         {
             DeltaVLookup.Remove();
             SimulatedTransfer.Remove();
-            if (harmony == null) return;
+            if (harmony == null)
+                return;
             harmony.Unpatch(AccessTools.Method(typeof(ModuleEngines), "RequestPropellant", new[] { typeof(double) }), HarmonyPatchType.All, Id);
             harmony = null;
             cache = null;
         }
 
-        // Same signature and evaluation order as the one replaced call; no resource-method IL is changed.
+        // AI-generated comment: Same signature and evaluation order as the one replaced call; no resource-method IL is changed.
         public static IEnumerable<CodeInstruction> Transpile(IEnumerable<CodeInstruction> source)
+        {
+            return KerbalOverEngineering.Options.Settings.Enabled("Stock.PropellantArgumentReuse") ? TranspileOne(source) : TranspileLegacy(source);
+        }
+
+        public static IEnumerable<CodeInstruction> TranspileLegacy(IEnumerable<CodeInstruction> source)
+        {
+            var code = new List<CodeInstruction>(source);
+            int count = 0;
+            foreach (var instruction in code)
+            {
+                if (instruction.Calls(FormatMethod))
+                {
+                    var copy = new CodeInstruction(instruction);
+                    copy.opcode = OpCodes.Call;
+                    copy.operand = AccessTools.Method(typeof(Patch), "FormatMessage");
+                    count++;
+                    yield return copy;
+                }
+                else
+                    yield return instruction;
+            }
+
+            if (count != 1)
+                throw new NotSupportedException("RequestPropellant must contain one deprivation-message formatting call.");
+        }
+
+        public static IEnumerable<CodeInstruction> TranspileOne(IEnumerable<CodeInstruction> source)
         {
             var code = new List<CodeInstruction>(source);
             int count = 0;
             foreach (CodeInstruction instruction in code)
-                if (instruction.Calls(FormatMethod)) count++;
-            if (count != 1) throw new NotSupportedException("RequestPropellant localization call shape changed; refusing to patch.");
-            foreach (CodeInstruction instruction in code)
                 if (instruction.Calls(FormatMethod))
+                    count++;
+            if (count != 1)
+                throw new NotSupportedException("Cannot find the deprivation-message formatting call in RequestPropellant.");
+            int call = code.FindIndex(instruction => instruction.Calls(FormatMethod));
+            // AI-generated comment: params string[1] is presentation-only. Retain the same template and
+            // resource evaluation, allocating the array only on formatter fallback.
+            int start = call - 6;
+            if (start < 0
+                || !code[start].LoadsConstant(1)
+                || code[start + 1].opcode != OpCodes.Newarr
+                || !Equals(code[start + 1].operand, typeof(string))
+                || code[start + 2].opcode != OpCodes.Dup
+                || !code[start + 3].LoadsConstant(0)
+                || !code[start + 4].IsLdloc()
+                || code[start + 5].opcode != OpCodes.Stelem_Ref)
+                throw new NotSupportedException("RequestPropellant must build a one-element string array for the deprivation message.");
+            for (int i = start; i <= call; i++)
+                if (code[i].labels.Count != 0 || code[i].blocks.Count != 0)
+                    throw new NotSupportedException("Another branch enters the argument-array block; replacing it would remove a branch target.");
+            for (int i = 0; i < code.Count; i++)
+            {
+                if (i == start)
                 {
-                    var replacement = new CodeInstruction(instruction);
-                    replacement.opcode = OpCodes.Call;
-                    replacement.operand = AccessTools.Method(typeof(Patch), "FormatMessage");
-                    yield return replacement;
+                    yield return code[start + 4];
+                    i = call;
+                    yield return new CodeInstruction(OpCodes.Call, AccessTools.Method(typeof(Patch), "FormatMessageOne"));
                 }
-                else yield return instruction;
+                else
+                    yield return code[i];
+            }
         }
 
         public static string FormatMessage(string template, string[] parameters)
         {
+            string result;
+            if (parameters != null && parameters.Length == 1 && TryCached(template, parameters[0], out result))
+                return result;
+            return Localizer.Format(template, parameters);
+        }
+
+        public static string FormatMessageOne(string template, string resource)
+        {
+            string result;
+            return TryCached(template, resource, out result) ? result : Localizer.Format(template, new[] { resource });
+        }
+
+        static bool TryCached(string template, string resource, out string result)
+        {
+            result = null;
             var localizer = Localizer.Instance;
-            if (template != DeprivedTag || parameters == null || parameters.Length != 1 || localizer == null ||
-                tagVersion == null || showKeys(localizer) || overrideLock(localizer) || debugMissing(localizer))
-                return Localizer.Format(template, parameters);
+            if (template != DeprivedTag
+                || localizer == null
+                || tagVersion == null
+                || showKeys(localizer)
+                || overrideLock(localizer)
+                || debugMissing(localizer))
+                return false;
             var tags = Localizer.Tags;
-            if (cache == null) cache = new MessageCache();
-            cache.Observe(localizer, tags, tagVersion(tags), Localizer.CurrentLanguage,
-                CultureInfo.CurrentCulture, CultureInfo.CurrentUICulture);
-            return cache.Get(parameters[0], StockFormat);
+            if (cache == null)
+                cache = new MessageCache();
+            cache.Observe(localizer, tags, tagVersion(tags), Localizer.CurrentLanguage, CultureInfo.CurrentCulture, CultureInfo.CurrentUICulture);
+            result = cache.Get(resource, StockFormat);
+            return true;
         }
 
         static string FormatResource(string resource)
@@ -94,7 +171,10 @@ namespace PropellantRequestFix
             if (field == null || field.FieldType != typeof(TResult))
                 throw new NotSupportedException("Unsupported field layout: " + typeof(T).Name + "." + name);
             var method = new DynamicMethod("KOE_Read_" + name, typeof(TResult), new[] { typeof(T) }, typeof(Patch), true);
-            var il = method.GetILGenerator(); il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, field); il.Emit(OpCodes.Ret);
+            var il = method.GetILGenerator();
+            il.Emit(OpCodes.Ldarg_0);
+            il.Emit(OpCodes.Ldfld, field);
+            il.Emit(OpCodes.Ret);
             return (Func<T, TResult>)method.CreateDelegate(typeof(Func<T, TResult>));
         }
 
@@ -102,10 +182,13 @@ namespace PropellantRequestFix
         {
             string name = AccessTools.Field(typeof(Dictionary<string, string>), "_version") != null ? "_version" : "version";
             tagVersion = Reader<Dictionary<string, string>, int>(name);
-            // Validate on this runtime: an in-place translation edit must invalidate the cache.
-            var test = new Dictionary<string, string>(); test["tag"] = "old";
-            int previous = tagVersion(test); test["tag"] = "new";
-            if (tagVersion(test) == previous) throw new NotSupportedException("Dictionary version does not track replacement.");
+            // AI-generated comment: Validate on this runtime: an in-place translation edit must invalidate the cache.
+            var test = new Dictionary<string, string>();
+            test["tag"] = "old";
+            int previous = tagVersion(test);
+            test["tag"] = "new";
+            if (tagVersion(test) == previous)
+                throw new NotSupportedException("Dictionary version does not track replacement.");
             showKeys = Reader<Localizer, bool>("_showKeysInGame");
             overrideLock = Reader<Localizer, bool>("_overrideMELock");
             debugMissing = Reader<Localizer, bool>("_debugWriteMissingKeysToLog");
@@ -117,12 +200,33 @@ namespace PropellantRequestFix
     {
         public void Awake()
         {
-            try { Patch.Apply(); }
-            catch (Exception ex) { Debug.LogError("[PropellantRequestFix] Disabled: " + ex.Message); }
-            try { DeltaVLookup.Apply(); }
-            catch (Exception ex) { Debug.LogError("[PropellantRequestFix] DeltaV lookup disabled: " + ex.Message); }
-            try { SimulatedTransfer.Apply(); }
-            catch (Exception ex) { Debug.LogError("[PropellantRequestFix] Simulated transfer disabled: " + ex.Message); }
+            try
+            {
+                Patch.Apply();
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError("[PropellantRequestFix] Disabled: " + ex.Message);
+            }
+
+            try
+            {
+                DeltaVLookup.Apply();
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError("[PropellantRequestFix] DeltaV lookup disabled: " + ex.Message);
+            }
+
+            try
+            {
+                SimulatedTransfer.Apply();
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError("[PropellantRequestFix] Simulated transfer disabled: " + ex.Message);
+            }
+
             Destroy(this);
         }
     }

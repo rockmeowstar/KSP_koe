@@ -16,6 +16,14 @@ PngPipelineFix - MIT
 PortraitFrameFix - MIT
 PqsNoiseFix - MIT
 PropellantRequestFix - MIT
+EventPathFix - MIT
+DeltaVReadBatchFix - MIT
+FAR EventPathFix integration - MIT (external FAR runtime not redistributed)
+FreeIVA RefreshFix integration - MIT (external FreeIVA runtime not redistributed)
+KSPCommunityFixes CollisionStateFix integration - MIT (external KSPCF runtime not redistributed)
+KSPCommunityFixes DragReductionFix integration and native compute plugin - MIT (external KSPCF runtime not redistributed)
+KSPCommunityFixes EarlyDlcCacheFix integration - MIT (external KSPCF runtime not redistributed)
+Waterfall RendererIndexFix integration - MIT (external Waterfall runtime not redistributed)
 EVE CloudLoopFix - MIT
 EVE CurveBakeFix - MIT
 EVE ShaderCorrectionGuards - MIT (MinHook/HDE: BSD-2-Clause)

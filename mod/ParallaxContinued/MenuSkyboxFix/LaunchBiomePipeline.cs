@@ -11,135 +11,238 @@ using UnityEngine.Rendering;
 
 namespace MenuSkyboxFix
 {
-    [KSPAddon(KSPAddon.Startup.Instantly,true)]
-    public sealed class LaunchBiomePipeline:MonoBehaviour
+    [KSPAddon(KSPAddon.Startup.Instantly, true)]
+    public sealed class LaunchBiomePipeline : MonoBehaviour
     {
         sealed class Job
         {
             public MapSO Source;
-            public byte[] Indices,Palette,Hash;
-            public int Width,Height;
+            public byte[] Indices, Palette, Hash;
+            public int Width, Height;
             public BiomeExpansion Result;
             public Task Work;
         }
-        static readonly Guid Kopernicus=new Guid("7fd28341-4f5a-4edf-b5f4-35706c820e0e");
-        static readonly FieldInfo Raw=AccessTools.Field(typeof(MapSO),"_data");
+
+        static readonly Guid Kopernicus = new Guid("7fd28341-4f5a-4edf-b5f4-35706c820e0e");
+        static readonly FieldInfo Raw = AccessTools.Field(typeof(MapSO), "_data");
         static Job prepared;
         static bool closed;
         public static long UploadedMaps, ReplacedPixels, ReplacedRoundCalls, PaletteRoundCalls, PreparedHits, MaxWorkers, Preparations, Fallbacks;
-        public static MethodInfo Bind(Assembly assembly,Assembly kopernicus)
+        public static MethodInfo Bind(Assembly assembly, Assembly kopernicus)
         {
-            if(typeof(MapSO).Assembly.ManifestModule.ModuleVersionId!=new Guid("4b449f28-41f8-4227-adfa-ad3149c8fdba")||
-                assembly.ManifestModule.ModuleVersionId!=new Guid("1ecb998e-ce0b-4bfd-970f-fe0fa2d99def")||kopernicus.ManifestModule.ModuleVersionId!=Kopernicus)
-                throw new NotSupportedException("Unknown biome provider/consumer");
-            if(Raw==null||Raw.FieldType!=typeof(byte[]))throw new NotSupportedException("MapSO data changed");
-            return AccessTools.DeclaredMethod(assembly.GetType("Parallax.ScatterManager",true),"DominantBodyLoaded",new[]{typeof(string)});
+            if (typeof(MapSO).Assembly.ManifestModule.ModuleVersionId != new Guid("4b449f28-41f8-4227-adfa-ad3149c8fdba")
+                || assembly.ManifestModule.ModuleVersionId != new Guid("1ecb998e-ce0b-4bfd-970f-fe0fa2d99def")
+                || kopernicus.ManifestModule.ModuleVersionId != Kopernicus)
+                throw new NotSupportedException("The installed Kopernicus biome provider or Parallax consumer does not match the supported build.");
+            if (Raw == null || Raw.FieldType != typeof(byte[]))
+                throw new NotSupportedException("MapSO data changed");
+            return AccessTools.DeclaredMethod(assembly.GetType("Parallax.ScatterManager", true), "DominantBodyLoaded", new[] { typeof(string) });
         }
+
         public void Awake()
         {
-            if (!KerbalOverEngineering.Options.Settings.Enabled("ParallaxContinued.BiomeRgbPreparation")) { Destroy(this); return; }
-            const string id="local.kerbaloverengineering.parallax-biome-pipeline";var h=new Harmony(id);
+            if (!KerbalOverEngineering.Options.Settings.Enabled("ParallaxContinued.BiomeRgbPreparation"))
+            {
+                Destroy(this);
+                return;
+            }
+
+            const string id = "local.kerbaloverengineering.parallax-biome-pipeline";
+            var harmony = new Harmony(id);
             try
             {
-                var assemblies=AppDomain.CurrentDomain.GetAssemblies();
-                var target=Bind(assemblies.Single(a=>a.GetName().Name=="ParallaxContinued"),assemblies.Single(a=>a.GetName().Name=="Kopernicus"));
-                if(target==null)throw new NotSupportedException("Parallax biome call changed");
-                h.Patch(target,null,null,new HarmonyMethod(typeof(LaunchBiomePipeline),"Transpile"));
+                var assemblies = AppDomain.CurrentDomain.GetAssemblies();
+                var target = Bind(assemblies.Single(a => a.GetName().Name == "ParallaxContinued"), assemblies.Single(a => a.GetName().Name == "Kopernicus"));
+                if (target == null)
+                    throw new NotSupportedException("Parallax biome call changed");
+                harmony.Patch(target, null, null, new HarmonyMethod(typeof(LaunchBiomePipeline), "Transpile"));
                 DontDestroyOnLoad(gameObject);
                 Debug.Log("[MenuSkyboxFix] Biome palette preparation: pure CPU workers during loading; original RGB24 upload on main thread.");
             }
-            catch(Exception ex){h.UnpatchAll(id);Debug.LogWarning("[MenuSkyboxFix] Biome pipeline unavailable: "+ex.Message);Destroy(this);}
+            catch (Exception ex)
+            {
+                harmony.UnpatchAll(id);
+                Debug.LogWarning("[MenuSkyboxFix] Biome pipeline unavailable: " + ex.Message);
+                Destroy(this);
+            }
         }
+
         static bool Supported(MapSO map)
         {
-            return SystemInfo.graphicsDeviceType==GraphicsDeviceType.Direct3D11&&map!=null&&
-                map.GetType().FullName=="Kopernicus.Components.KopernicusCBAttributeMapSO"&&map.GetType().Assembly.ManifestModule.ModuleVersionId==Kopernicus;
+            return SystemInfo.graphicsDeviceType == GraphicsDeviceType.Direct3D11
+                && map != null
+                && map.GetType().FullName == "Kopernicus.Components.KopernicusCBAttributeMapSO"
+                && map.GetType().Assembly.ManifestModule.ModuleVersionId == Kopernicus;
         }
+
         static byte[] Palette(MapSO map)
         {
-            var attributes=((CBAttributeMapSO)map).Attributes;
-            if(attributes==null||attributes.Length<1||attributes.Length>256)throw new NotSupportedException("Biome palette size");
-            var bytes=new byte[attributes.Length*3];
-            for(int i=0;i<attributes.Length;i++)
+            var attributes = ((CBAttributeMapSO)map).Attributes;
+            if (attributes == null || attributes.Length < 1 || attributes.Length > 256)
+                throw new NotSupportedException("Biome palette size");
+            var bytes = new byte[attributes.Length * 3];
+            for (int i = 0; i < attributes.Length; i++)
             {
-                var color=attributes[i].mapColor;
-                bytes[i*3]=(byte)Math.Round(color.r*255f);bytes[i*3+1]=(byte)Math.Round(color.g*255f);bytes[i*3+2]=(byte)Math.Round(color.b*255f);
+                var color = attributes[i].mapColor;
+                bytes[i * 3] = (byte)Math.Round(color.r * 255f);
+                bytes[i * 3 + 1] = (byte)Math.Round(color.g * 255f);
+                bytes[i * 3 + 2] = (byte)Math.Round(color.b * 255f);
             }
-            PaletteRoundCalls+=bytes.Length;return bytes;
+
+            PaletteRoundCalls += bytes.Length;
+            return bytes;
         }
+
         static Job Prepare(MapSO map)
         {
-            var data=(byte[])Raw.GetValue(map);
-            if(map.Width<1||map.Height<1||data.LongLength!=(long)map.Width*map.Height||data.LongLength*4>KerbalOverEngineering.Options.LoadingResources.Current.BiomeBudget)
+            var data = (byte[])Raw.GetValue(map);
+            if (map.Width < 1
+                || map.Height < 1
+                || data.LongLength != (long)map.Width * map.Height
+                || data.LongLength * 4 > KerbalOverEngineering.Options.LoadingResources.Current.BiomeBudget)
                 throw new NotSupportedException("Biome preparation budget or shape");
-            var job=new Job{Source=map,Indices=(byte[])data.Clone(),Palette=Palette(map),Width=map.Width,Height=map.Height};
-            int degree=Environment.ProcessorCount;
-            job.Work=Task.Factory.StartNew(()=>
+            var job = new Job
             {
-                // Only immutable primitive arrays and dimensions cross this boundary. No Unity calls.
-                using(var sha=SHA256.Create())job.Hash=sha.ComputeHash(job.Indices);
-                job.Result=BiomePixels.Expand(job.Indices,job.Palette,job.Width,job.Height,degree);
-                job.Indices=null;
-            },TaskCreationOptions.LongRunning);
-            Preparations++;return job;
+                Source = map,
+                Indices = (byte[])data.Clone(),
+                Palette = Palette(map),
+                Width = map.Width,
+                Height = map.Height
+            };
+            int degree = Environment.ProcessorCount;
+            job.Work = Task.Factory.StartNew(() =>
+            {
+                // AI-generated comment: Only immutable primitive arrays and dimensions cross this boundary. No Unity calls.
+                using (var sha = SHA256.Create())
+                    job.Hash = sha.ComputeHash(job.Indices);
+                job.Result = BiomePixels.Expand(job.Indices, job.Palette, job.Width, job.Height, degree);
+                job.Indices = null;
+            }, TaskCreationOptions.LongRunning);
+            Preparations++;
+            return job;
         }
-        static bool Current(Job job,MapSO map)
+
+        static bool Current(Job job, MapSO map)
         {
-            if(job.Width!=map.Width||job.Height!=map.Height)return false;
-            byte[] hash;using(var sha=SHA256.Create())hash=sha.ComputeHash((byte[])Raw.GetValue(map));
-            return job.Hash.SequenceEqual(hash)&&job.Palette.SequenceEqual(Palette(map));
+            if (job.Width != map.Width || job.Height != map.Height)
+                return false;
+            byte[] hash;
+            using (var sha = SHA256.Create())
+                hash = sha.ComputeHash((byte[])Raw.GetValue(map));
+            return job.Hash.SequenceEqual(hash) && job.Palette.SequenceEqual(Palette(map));
         }
+
         public void Update()
         {
-            if(HighLogic.LoadedScene==GameScenes.FLIGHT&&FlightGlobals.ready){Release();Destroy(this);return;}
-            if(closed||prepared!=null||PSystemManager.Instance==null||FlightGlobals.Bodies==null||FlightGlobals.Bodies.Count==0)return;
-            var home=FlightGlobals.GetHomeBody();if(home==null||!Supported(home.BiomeMap))return;
+            if (HighLogic.LoadedScene == GameScenes.FLIGHT && FlightGlobals.ready)
+            {
+                Release();
+                Destroy(this);
+                return;
+            }
+
+            if (closed
+                || prepared != null
+                || PSystemManager.Instance == null
+                || FlightGlobals.Bodies == null
+                || FlightGlobals.Bodies.Count == 0)
+                return;
+            var home = FlightGlobals.GetHomeBody();
+            if (home == null || !Supported(home.BiomeMap))
+                return;
             try
             {
-                prepared=Prepare(home.BiomeMap);
-                Debug.Log("[MenuSkyboxFix] Preparing home biome RGB during "+HighLogic.LoadedScene+"; size="+prepared.Width+"x"+prepared.Height+"; logical="+Environment.ProcessorCount);
+                prepared = Prepare(home.BiomeMap);
+                Debug.Log(
+                    "[MenuSkyboxFix] Preparing home biome RGB during " + HighLogic.LoadedScene
+                    + "; size=" + prepared.Width
+                    + "x" + prepared.Height
+                    + "; logical=" + Environment.ProcessorCount
+                );
             }
-            catch(Exception ex){Debug.LogWarning("[MenuSkyboxFix] Early biome preparation skipped: "+ex.Message);Release();Destroy(this);}
+            catch (Exception ex)
+            {
+                Debug.LogWarning("[MenuSkyboxFix] Early biome preparation skipped: " + ex.Message);
+                Release();
+                Destroy(this);
+            }
         }
+
         public static Texture2D Compile(MapSO map)
         {
-            if(!Supported(map))return map.CompileToTexture();
-            Texture2D texture=null;
+            if (!Supported(map))
+                return map.CompileToTexture();
+            Texture2D texture = null;
             try
             {
-                var job=prepared;
-                if(job==null||!ReferenceEquals(job.Source,map))job=Prepare(map);
+                var job = prepared;
+                if (job == null || !ReferenceEquals(job.Source, map))
+                    job = Prepare(map);
                 job.Work.Wait();
-                if(!Current(job,map))
+                if (!Current(job, map))
                 {
-                    if(ReferenceEquals(job,prepared))prepared=null;
-                    job=Prepare(map);job.Work.Wait();
-                    if(!Current(job,map))throw new NotSupportedException("Biome changed during preparation");
+                    if (ReferenceEquals(job, prepared))
+                        prepared = null;
+                    job = Prepare(map);
+                    job.Work.Wait();
+                    if (!Current(job, map))
+                        throw new NotSupportedException("Biome changed during preparation");
                 }
-                if(ReferenceEquals(job,prepared))PreparedHits++;
-                texture=new Texture2D(map.Width,map.Height,TextureFormat.RGB24,false);
-                texture.LoadRawTextureData(job.Result.Bytes);texture.Apply(false,true);
-                UploadedMaps++;ReplacedPixels+=(long)map.Width*map.Height;ReplacedRoundCalls+=(long)map.Width*map.Height*3;
-                MaxWorkers=Math.Max(MaxWorkers,job.Result.Workers);return texture;
+
+                if (ReferenceEquals(job, prepared))
+                    PreparedHits++;
+                texture = new Texture2D(map.Width, map.Height, TextureFormat.RGB24, false);
+                texture.LoadRawTextureData(job.Result.Bytes);
+                texture.Apply(false, true);
+                UploadedMaps++;
+                ReplacedPixels += (long)map.Width * map.Height;
+                ReplacedRoundCalls += (long)map.Width * map.Height * 3;
+                MaxWorkers = Math.Max(MaxWorkers, job.Result.Workers);
+                return texture;
             }
-            catch(Exception ex)
+            catch (Exception ex)
             {
-                if(texture!=null)UnityEngine.Object.Destroy(texture);
-                Fallbacks++;Debug.LogWarning("[MenuSkyboxFix] Original biome conversion: "+ex.Message);return map.CompileToTexture();
+                if (texture != null)
+                    UnityEngine.Object.Destroy(texture);
+                Fallbacks++;
+                Debug.LogWarning("[MenuSkyboxFix] Original biome conversion: " + ex.Message);
+                return map.CompileToTexture();
             }
         }
+
         public static IEnumerable<CodeInstruction> Transpile(IEnumerable<CodeInstruction> input)
         {
-            var code=input.Select(c=>new CodeInstruction(c)).ToList();int count=0;
-            foreach(var c in code)
+            var code = input.Select(c => new CodeInstruction(c)).ToList();
+            int count = 0;
+            foreach (var c in code)
             {
-                var method=c.operand as MethodInfo;
-                if(method!=null&&method.Name=="CompileToTexture"&&typeof(MapSO).IsAssignableFrom(method.DeclaringType)&&method.GetParameters().Length==0&&method.ReturnType==typeof(Texture2D))
-                {c.opcode=OpCodes.Call;c.operand=AccessTools.Method(typeof(LaunchBiomePipeline),"Compile");count++;}
+                var method = c.operand as MethodInfo;
+                if (method != null
+                    && method.Name == "CompileToTexture"
+                    && typeof(MapSO).IsAssignableFrom(method.DeclaringType)
+                    && method.GetParameters().Length == 0
+                    && method.ReturnType == typeof(Texture2D))
+                {
+                    c.opcode = OpCodes.Call;
+                    c.operand = AccessTools.Method(typeof(LaunchBiomePipeline), "Compile");
+                    count++;
+                }
             }
-            if(count!=1)throw new NotSupportedException("Parallax biome consumer changed");return code;
+
+            if (count != 1)
+                throw new NotSupportedException("Parallax biome consumer changed");
+            return code;
         }
-        static void Release(){closed=true;prepared=null;}
-        public void OnDestroy(){Release();}
+
+        static void Release()
+        {
+            closed = true;
+            prepared = null;
+        }
+
+        public void OnDestroy()
+        {
+            Release();
+        }
     }
 }

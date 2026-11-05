@@ -10,7 +10,6 @@ using UnityEngine;
 
 [assembly: AssemblyTitle("KerbalOverEngineering DDS Upload Fix")]
 [assembly: AssemblyVersion("1.0.0.0")]
-
 namespace DdsUploadFix
 {
     public struct PinnedPayload : IDisposable
@@ -20,9 +19,11 @@ namespace DdsUploadFix
         public readonly int Count;
         public PinnedPayload(BinaryReader reader, int count)
         {
-            if (count < 0) throw new ArgumentOutOfRangeException("count");
+            if (count < 0)
+                throw new ArgumentOutOfRangeException("count");
             var stream = reader.BaseStream as MemoryStream;
-            if (stream == null) throw new NotSupportedException("Expected DDS memory stream.");
+            if (stream == null)
+                throw new NotSupportedException("Expected DDS memory stream.");
             long position = stream.Position;
             Count = (int)Math.Min(count, Math.Max(0, stream.Length - position));
             byte[] bytes = stream.GetBuffer();
@@ -30,7 +31,12 @@ namespace DdsUploadFix
             Pointer = IntPtr.Add(handle.AddrOfPinnedObject(), checked((int)Math.Min(position, bytes.Length)));
             stream.Position = position + Count;
         }
-        public void Dispose() { if (handle.IsAllocated) handle.Free(); }
+
+        public void Dispose()
+        {
+            if (handle.IsAllocated)
+                handle.Free();
+        }
     }
 
     public static class Patch
@@ -42,23 +48,28 @@ namespace DdsUploadFix
         static readonly MethodInfo LoadBytes = typeof(Texture2D).GetMethod("LoadRawTextureData", new[] { typeof(byte[]) });
         static Harmony harmony;
         public static long AvoidedCopies, AvoidedCopyBytes;
-
         public static MemoryStream OpenBuffer(byte[] bytes)
-        { return new MemoryStream(bytes, 0, bytes.Length, false, true); }
+        {
+            return new MemoryStream(bytes, 0, bytes.Length, false, true);
+        }
 
         public static void Upload(Texture2D texture, BinaryReader reader, int count)
         {
             using (var payload = new PinnedPayload(reader, count))
             {
                 texture.LoadRawTextureData(payload.Pointer, payload.Count);
-                AvoidedCopies++; AvoidedCopyBytes += payload.Count;
+                AvoidedCopies++;
+                AvoidedCopyBytes += payload.Count;
             }
         }
 
         public static void Apply()
         {
-            if (!KerbalOverEngineering.Options.Settings.Enabled("Stock.DdsDirectUpload") && !KerbalOverEngineering.Options.Settings.Enabled("Stock.DdsPrefetch")) return;
-            if (harmony != null) return;
+            if (!KerbalOverEngineering.Options.Settings.Enabled("Stock.DdsDirectUpload")
+                && !KerbalOverEngineering.Options.Settings.Enabled("Stock.DdsPrefetch"))
+                return;
+            if (harmony != null)
+                return;
             if (typeof(DatabaseLoaderTexture_DDS).Assembly.ManifestModule.ModuleVersionId != Supported)
                 throw new NotSupportedException("Unsupported KSP DDS loader.");
             var target = AccessTools.DeclaredMethod(typeof(DatabaseLoaderTexture_DDS), "Read");
@@ -66,9 +77,15 @@ namespace DdsUploadFix
             try
             {
                 patcher.Patch(target, null, null, new HarmonyMethod(typeof(Patch), "Transpile"));
-                if (KerbalOverEngineering.Options.Settings.Enabled("Stock.DdsPrefetch")) PrefetchPhase.Register();
+                if (KerbalOverEngineering.Options.Settings.Enabled("Stock.DdsPrefetch"))
+                    PrefetchPhase.Register();
             }
-            catch { patcher.Unpatch(target, HarmonyPatchType.All, Id); throw; }
+            catch
+            {
+                patcher.Unpatch(target, HarmonyPatchType.All, Id);
+                throw;
+            }
+
             harmony = patcher;
             Debug.Log("[DdsUploadFix] Loaded 1.0.0: upload original DDS payload without a second managed copy; DXT data and mipmaps unchanged.");
         }
@@ -82,26 +99,48 @@ namespace DdsUploadFix
             for (int i = 0; i < code.Count; i++)
             {
                 if (code[i].Calls(typeof(File).GetMethod("ReadAllBytes", new[] { typeof(string) })))
-                { if (prefetch) code[i].operand = typeof(PrefetchPhase).GetMethod("Read"); files++; }
-                if (!direct) continue;
+                {
+                    if (prefetch)
+                        code[i].operand = typeof(PrefetchPhase).GetMethod("Read");
+                    files++;
+                }
+
+                if (!direct)
+                    continue;
                 if (code[i].opcode == OpCodes.Newobj && Equals(code[i].operand, Memory))
                 {
-                    code[i].opcode = OpCodes.Call; code[i].operand = typeof(Patch).GetMethod("OpenBuffer"); streams++;
+                    code[i].opcode = OpCodes.Call;
+                    code[i].operand = typeof(Patch).GetMethod("OpenBuffer");
+                    streams++;
                 }
-                if (!code[i].Calls(ReadBytes)) continue;
+
+                if (!code[i].Calls(ReadBytes))
+                    continue;
                 reads++;
                 int next = i + 1;
-                if (next + 1 < code.Count && code[next].opcode == OpCodes.Dup && code[next + 1].opcode == OpCodes.Pop) next += 2;
-                if (next >= code.Count || !code[next].Calls(LoadBytes)) throw new NotSupportedException("DDS payload consumer changed.");
+                if (next + 1 < code.Count && code[next].opcode == OpCodes.Dup && code[next + 1].opcode == OpCodes.Pop)
+                    next += 2;
+                if (next >= code.Count || !code[next].Calls(LoadBytes))
+                    throw new NotSupportedException("DDS payload consumer changed.");
                 for (int j = i; j <= next; j++)
                     if (code[j].blocks.Count != 0 || code[j].labels.Count != 0)
                         throw new NotSupportedException("DDS payload control flow changed.");
-                // Keep texture, reader and count on the stack until the combined upload call.
-                code[i].opcode = OpCodes.Nop; code[i].operand = null;
-                for (int j = i + 1; j < next; j++) { code[j].opcode = OpCodes.Nop; code[j].operand = null; }
-                code[next].opcode = OpCodes.Call; code[next].operand = typeof(Patch).GetMethod("Upload"); uploads++;
+                // AI-generated comment: Keep texture, reader and count on the stack until the combined upload call.
+                code[i].opcode = OpCodes.Nop;
+                code[i].operand = null;
+                for (int j = i + 1; j < next; j++)
+                {
+                    code[j].opcode = OpCodes.Nop;
+                    code[j].operand = null;
+                }
+
+                code[next].opcode = OpCodes.Call;
+                code[next].operand = typeof(Patch).GetMethod("Upload");
+                uploads++;
             }
-            if (files != 1 || (direct && (streams != 1 || reads != 2 || uploads != 2))) throw new NotSupportedException("Expected one DDS buffer and DXT1/DXT5 uploads.");
+
+            if (files != 1 || (direct && (streams != 1 || reads != 2 || uploads != 2)))
+                throw new NotSupportedException("Expected one DDS buffer and DXT1/DXT5 uploads.");
             return code;
         }
     }
@@ -111,8 +150,15 @@ namespace DdsUploadFix
     {
         public void Awake()
         {
-            try { Patch.Apply(); }
-            catch (Exception ex) { Debug.LogError("[DdsUploadFix] Disabled: " + ex); }
+            try
+            {
+                Patch.Apply();
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError("[DdsUploadFix] Disabled: " + ex);
+            }
+
             Destroy(this);
         }
     }

@@ -2,6 +2,11 @@
 /build/
 /artifacts/package38-build/
 /artifacts/compatibility-tests/
+/artifacts/event-path-tests/
+/artifacts/delta-v-read-batch-tests/
+/artifacts/drag-reduction-tests/
+/artifacts/drag-reduction-build/
+/artifacts/dlc-cache-tests/
 *.obj
 *.pdb
 *.ilk

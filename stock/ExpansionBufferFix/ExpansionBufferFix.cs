@@ -9,7 +9,6 @@ using UnityEngine;
 
 [assembly: AssemblyTitle("KerbalOverEngineering Expansion Buffer Fix")]
 [assembly: AssemblyVersion("1.0.0.0")]
-
 namespace ExpansionBufferFix
 {
     public static class Patch
@@ -20,28 +19,40 @@ namespace ExpansionBufferFix
         static readonly MethodInfo Hash = typeof(HashAlgorithm).GetMethod("ComputeHash", new[] { typeof(byte[]) });
         static Harmony harmony;
         public static long AvoidedCopies, AvoidedCopyBytes;
-
         public static MethodInfo FindTarget(Assembly assembly)
         {
             Type type = assembly.GetType("Expansions.BundleLoader+<LoadAssetBundle>d__16", true);
             var method = AccessTools.DeclaredMethod(type, "MoveNext");
-            if (method == null || method.ReturnType != typeof(bool)) throw new NotSupportedException("Expansion loader layout changed.");
+            if (method == null || method.ReturnType != typeof(bool))
+                throw new NotSupportedException("Cannot find MoveNext on the expansion bundle-loading coroutine.");
             return method;
         }
 
         public static void Apply()
         {
-            if (!KerbalOverEngineering.Options.Settings.Enabled("Stock.ExpansionBufferReuse")) return;
-            if (harmony != null) return;
+            if (!KerbalOverEngineering.Options.Settings.Enabled("Stock.ExpansionBufferReuse"))
+                return;
+            if (harmony != null)
+                return;
             Assembly assembly = typeof(ModuleEngines).Assembly;
-            if (assembly.ManifestModule.ModuleVersionId != Supported) throw new NotSupportedException("Unsupported KSP assembly.");
-            if (!string.IsNullOrEmpty(assembly.Location)) using (var sha = SHA256.Create())
-                if (BitConverter.ToString(sha.ComputeHash(System.IO.File.ReadAllBytes(assembly.Location))).Replace("-", "").ToLowerInvariant() != KspSha)
-                    throw new NotSupportedException("KSP file identity changed.");
+            if (assembly.ManifestModule.ModuleVersionId != Supported)
+                throw new NotSupportedException("Unsupported KSP assembly.");
+            if (!string.IsNullOrEmpty(assembly.Location))
+                using (var sha = SHA256.Create())
+                    if (BitConverter.ToString(sha.ComputeHash(System.IO.File.ReadAllBytes(assembly.Location))).Replace("-", "").ToLowerInvariant() != KspSha)
+                        throw new NotSupportedException("KSP file identity changed.");
             var target = FindTarget(assembly);
             var patcher = new Harmony(Id);
-            try { patcher.Patch(target, null, null, new HarmonyMethod(typeof(Patch), "Transpile")); }
-            catch { patcher.Unpatch(target, HarmonyPatchType.All, Id); throw; }
+            try
+            {
+                patcher.Patch(target, null, null, new HarmonyMethod(typeof(Patch), "Transpile"));
+            }
+            catch
+            {
+                patcher.Unpatch(target, HarmonyPatchType.All, Id);
+                throw;
+            }
+
             harmony = patcher;
             Debug.Log("[ExpansionBufferFix] Loaded 1.0.0: one downloaded buffer for MD5 and bundle load; integrity checks preserved.");
         }
@@ -49,22 +60,30 @@ namespace ExpansionBufferFix
         static bool IsDataRead(CodeInstruction instruction)
         {
             var method = instruction.operand as MethodInfo;
-            return instruction.opcode == OpCodes.Callvirt && method != null &&
-                method.DeclaringType.FullName == "UnityEngine.Networking.DownloadHandler" && method.Name == "get_data" &&
-                method.ReturnType == typeof(byte[]) && method.GetParameters().Length == 0;
+            return instruction.opcode == OpCodes.Callvirt
+                && method != null
+                && method.DeclaringType.FullName == "UnityEngine.Networking.DownloadHandler"
+                && method.Name == "get_data"
+                && method.ReturnType == typeof(byte[])
+                && method.GetParameters().Length == 0;
         }
 
         static FieldInfo RequestField(List<CodeInstruction> code, int data)
         {
             int i = data - 1;
-            if (i > 0 && code[i].opcode == OpCodes.Pop && code[i - 1].opcode == OpCodes.Dup) i -= 2;
+            if (i > 0 && code[i].opcode == OpCodes.Pop && code[i - 1].opcode == OpCodes.Dup)
+                i -= 2;
             var getter = i >= 2 ? code[i].operand as MethodInfo : null;
             var field = i >= 2 ? code[i - 1].operand as FieldInfo : null;
-            if (getter == null || code[i].opcode != OpCodes.Callvirt || getter.Name != "get_downloadHandler" ||
-                getter.DeclaringType.FullName != "UnityEngine.Networking.UnityWebRequest" ||
-                code[i - 1].opcode != OpCodes.Ldfld || field == null ||
-                field.FieldType.FullName != "UnityEngine.Networking.UnityWebRequest" || code[i - 2].opcode != OpCodes.Ldarg_0)
-                throw new NotSupportedException("Unexpected expansion download handler.");
+            if (getter == null
+                || code[i].opcode != OpCodes.Callvirt
+                || getter.Name != "get_downloadHandler"
+                || getter.DeclaringType.FullName != "UnityEngine.Networking.UnityWebRequest"
+                || code[i - 1].opcode != OpCodes.Ldfld
+                || field == null
+                || field.FieldType.FullName != "UnityEngine.Networking.UnityWebRequest"
+                || code[i - 2].opcode != OpCodes.Ldarg_0)
+                throw new NotSupportedException("The expansion buffer read must come from the coroutine's UnityWebRequest field.");
             return field;
         }
 
@@ -72,54 +91,78 @@ namespace ExpansionBufferFix
         {
             var code = source.Select(c => new CodeInstruction(c)).ToList();
             var reads = Enumerable.Range(0, code.Count).Where(i => IsDataRead(code[i])).ToArray();
-            if (reads.Length != 2 || !Equals(code[reads[0]].operand, code[reads[1]].operand) ||
-                !Equals(RequestField(code, reads[0]), RequestField(code, reads[1])))
+            if (reads.Length != 2
+                || !Equals(code[reads[0]].operand, code[reads[1]].operand)
+                || !Equals(RequestField(code, reads[0]), RequestField(code, reads[1])))
                 throw new NotSupportedException("Expected two reads of the same expansion buffer.");
             int first = reads[0], second = reads[1], hashes = 0, handlers = 0;
             for (int i = first; i <= second; i++)
             {
                 var c = code[i];
-                if (c.labels.Count != 0 || c.blocks.Count != 0 ||
-                    c.opcode.FlowControl == FlowControl.Branch || c.opcode.FlowControl == FlowControl.Cond_Branch ||
-                    c.opcode.FlowControl == FlowControl.Return || c.opcode.FlowControl == FlowControl.Throw)
+                if (c.labels.Count != 0
+                    || c.blocks.Count != 0
+                    || c.opcode.FlowControl == FlowControl.Branch
+                    || c.opcode.FlowControl == FlowControl.Cond_Branch
+                    || c.opcode.FlowControl == FlowControl.Return
+                    || c.opcode.FlowControl == FlowControl.Throw)
                     throw new NotSupportedException("Expansion buffer control flow changed.");
                 var method = c.operand as MethodInfo;
-                if (method == null || i == first || i == second) continue;
-                if (Equals(method, Hash)) hashes++;
-                else if (method.DeclaringType.FullName == "UnityEngine.Networking.UnityWebRequest" && method.Name == "get_downloadHandler") handlers++;
-                else throw new NotSupportedException("Unexpected operation between expansion buffer reads.");
+                if (method == null || i == first || i == second)
+                    continue;
+                if (Equals(method, Hash))
+                    hashes++;
+                else if (method.DeclaringType.FullName == "UnityEngine.Networking.UnityWebRequest" && method.Name == "get_downloadHandler")
+                    handlers++;
+                else
+                    throw new NotSupportedException("The expansion loader now performs another operation between buffer reads.");
             }
-            int next = second + 1;
-            if (next + 1 < code.Count && code[next].opcode == OpCodes.Dup && code[next + 1].opcode == OpCodes.Pop) next += 2;
-            var load = next < code.Count ? code[next].operand as MethodInfo : null;
-            if (hashes != 1 || handlers != 1 || load == null || load.DeclaringType.FullName != "UnityEngine.AssetBundle" ||
-                load.Name != "LoadFromMemory" || !load.IsStatic || load.GetParameters().Length != 1 || load.GetParameters()[0].ParameterType != typeof(byte[]))
-                throw new NotSupportedException("Expansion hash/load sequence changed.");
 
+            int next = second + 1;
+            if (next + 1 < code.Count && code[next].opcode == OpCodes.Dup && code[next + 1].opcode == OpCodes.Pop)
+                next += 2;
+            var load = next < code.Count ? code[next].operand as MethodInfo : null;
+            if (hashes != 1
+                || handlers != 1
+                || load == null
+                || load.DeclaringType.FullName != "UnityEngine.AssetBundle"
+                || load.Name != "LoadFromMemory"
+                || !load.IsStatic
+                || load.GetParameters().Length != 1
+                || load.GetParameters()[0].ParameterType != typeof(byte[]))
+                throw new NotSupportedException("Expansion hash/load sequence changed.");
             LocalBuilder buffer = generator.DeclareLocal(typeof(byte[]));
             var result = new List<CodeInstruction>(code.Count + 4);
             for (int i = 0; i < code.Count; i++)
             {
                 if (i == second)
                 {
-                    var pop = new CodeInstruction(code[i]); pop.opcode = OpCodes.Pop; pop.operand = null;
+                    var pop = new CodeInstruction(code[i]);
+                    pop.opcode = OpCodes.Pop;
+                    pop.operand = null;
                     result.Add(pop); // Discard the handler, retaining its original evaluation order.
                     result.Add(new CodeInstruction(OpCodes.Ldloc, buffer));
                     result.Add(new CodeInstruction(OpCodes.Call, typeof(Patch).GetMethod("RecordReuse")));
                 }
-                else result.Add(code[i]);
+                else
+                    result.Add(code[i]);
                 if (i == first)
                 {
                     result.Add(new CodeInstruction(OpCodes.Dup));
                     result.Add(new CodeInstruction(OpCodes.Stloc, buffer));
                 }
             }
+
             return result;
         }
 
         public static byte[] RecordReuse(byte[] buffer)
         {
-            if (buffer != null) { AvoidedCopies++; AvoidedCopyBytes += buffer.LongLength; }
+            if (buffer != null)
+            {
+                AvoidedCopies++;
+                AvoidedCopyBytes += buffer.LongLength;
+            }
+
             return buffer;
         }
     }
@@ -129,8 +172,15 @@ namespace ExpansionBufferFix
     {
         public void Awake()
         {
-            try { Patch.Apply(); }
-            catch (Exception ex) { Debug.LogError("[ExpansionBufferFix] Disabled: " + ex.Message); }
+            try
+            {
+                Patch.Apply();
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError("[ExpansionBufferFix] Disabled: " + ex.Message);
+            }
+
             Destroy(this);
         }
     }

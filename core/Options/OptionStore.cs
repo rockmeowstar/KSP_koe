@@ -9,20 +9,39 @@ namespace KerbalOverEngineering.Options
     {
         public readonly string Group, Name, Requirement, Parent;
         public readonly bool DefaultEnabled;
-        public string Key { get { return Group + "." + Name; } }
+        public string Key
+        {
+            get
+            {
+                return Group + "." + Name;
+            }
+        }
+
         public Feature(string group, string name, string requirement, string parent, bool defaultEnabled = true)
-        { Group = group; Name = name; Requirement = requirement; Parent = parent; DefaultEnabled = defaultEnabled; }
+        {
+            Group = group;
+            Name = name;
+            Requirement = requirement;
+            Parent = parent;
+            DefaultEnabled = defaultEnabled;
+        }
     }
 
     public static class Catalog
     {
         public const int SchemaVersion = 1;
         static Feature F(string group, string name, string requirement, string parent = null, bool defaultEnabled = true)
-        { return new Feature(group, name, requirement, parent, defaultEnabled); }
-        public static readonly Feature[] Features = {
+        {
+            return new Feature(group, name, requirement, parent, defaultEnabled);
+        }
+
+        public static readonly Feature[] Features =
+        {
             F("Stock", "ExhaustSync", "Harmony"),
             F("Stock", "PropellantMessageCache", "Harmony"),
+            F("Stock", "PropellantArgumentReuse", "Harmony", "Stock.PropellantMessageCache"),
             F("Stock", "DeltaVLookup", "Harmony"),
+            F("Stock", "DeltaVReadBatch", "Harmony"),
             F("Stock", "SimulatedTransfer", "Harmony"),
             F("Stock", "ExpansionBufferReuse", "Harmony"),
             F("Stock", "DdsDirectUpload", "Harmony"),
@@ -40,6 +59,20 @@ namespace KerbalOverEngineering.Options
             F("Stock", "PqsPatchStateMemo", "Harmony", "Stock.PqsNoisePreparation"),
             F("Stock", "PortraitFullRate", "Harmony"),
             F("Stock", "PortraitHiddenCull", "Harmony"),
+            F("Stock", "StageListReuse", "Harmony"),
+            F("Stock", "EvaTriggerListReuse", "Harmony"),
+            F("Stock", "PropellantGaugeLookup", "Harmony"),
+            F("FAR", "RendererInitDispatch", "FAR"),
+            F("FAR", "HitSortBuffers", "FAR"),
+            F("FAR", "FairingLifecycle", "FAR"),
+            F("FAR", "ColliderOwnerIndex", "FAR"),
+            F("FreeIva", "HatchConnectionDedup", "FreeIva"),
+            F("FreeIva", "ForeignVesselRefresh", "FreeIva"),
+            F("FreeIva", "RendererVisitBuffers", "FreeIva"),
+            F("KSPCommunityFixes", "CollisionStateDedup", "KSPCF"),
+            F("KSPCommunityFixes", "DragGpuReduction", "KspCfCompute"),
+            F("KSPCommunityFixes", "EarlyDlcCache", "KSPCF"),
+            F("Waterfall", "RendererMembershipIndex", "Waterfall"),
             F("EVE", "IntervalGeometryMemo", "EVE"),
             F("EVE", "LayerOrderMemo", "EVE"),
             F("EVE", "MaterialSetupDedup", "EVE"),
@@ -62,7 +95,7 @@ namespace KerbalOverEngineering.Options
         };
     }
 
-    // Pure filesystem/config logic. No dependency code is loaded by this class.
+    // AI-generated comment: Pure filesystem/config logic. No dependency code is loaded by this class.
     public sealed class OptionStore
     {
         readonly Dictionary<string, bool> requested = new Dictionary<string, bool>(StringComparer.Ordinal);
@@ -82,9 +115,12 @@ namespace KerbalOverEngineering.Options
                 features.Add(feature.Key, feature);
                 requested.Add(feature.Key, false); // Missing/invalid keys fail closed, including future keys.
                 string reason = support(feature);
-                if (reason != null) unavailable.Add(feature.Key, reason);
+                if (reason != null)
+                    unavailable.Add(feature.Key, reason);
             }
-            if (!File.Exists(Path)) CreateMissing();
+
+            if (!File.Exists(Path))
+                CreateMissing();
             ReadExisting();
         }
 
@@ -99,27 +135,48 @@ namespace KerbalOverEngineering.Options
             foreach (Feature feature in Catalog.Features)
             {
                 if (group != feature.Group)
-                { group = feature.Group; text.AppendLine(); text.AppendLine("[" + group + "]"); }
+                {
+                    group = feature.Group;
+                    text.AppendLine();
+                    text.AppendLine("[" + group + "]");
+                }
+
                 string reason;
                 bool supported = !unavailable.TryGetValue(feature.Key, out reason);
                 string upstream = defaultDisabledReason == null ? null : defaultDisabledReason(feature);
                 bool enabled = supported && feature.DefaultEnabled && upstream == null;
                 text.AppendLine("// Requires: " + feature.Requirement + (feature.Parent == null ? "" : "; " + feature.Parent));
-                if (!supported) text.AppendLine("// Unavailable: " + reason.Replace('\r', ' ').Replace('\n', ' '));
-                else if (upstream != null) text.AppendLine("// Default off: " + upstream.Replace('\r', ' ').Replace('\n', ' '));
-                else if (!feature.DefaultEnabled) text.AppendLine("// Experimental: disabled by default; enable explicitly for testing.");
+                if (!supported)
+                    text.AppendLine("// Unavailable: " + reason.Replace('\r', ' ').Replace('\n', ' '));
+                else if (upstream != null)
+                    text.AppendLine("// Default off: " + upstream.Replace('\r', ' ').Replace('\n', ' '));
+                else if (!feature.DefaultEnabled)
+                    text.AppendLine("// Experimental: disabled by default; enable explicitly for testing.");
                 text.AppendLine(feature.Name + " = " + (enabled ? "true" : "false"));
             }
+
             Directory.CreateDirectory(System.IO.Path.GetDirectoryName(Path));
-            // Publish a complete file atomically. A competing creator or a manual file always wins.
+            // AI-generated comment: Publish a complete file atomically. A competing creator or a manual file always wins.
             string temporary = Path + "." + Guid.NewGuid().ToString("N") + ".tmp";
             try
             {
                 File.WriteAllText(temporary, text.ToString(), new UTF8Encoding(false));
-                try { File.Move(temporary, Path); Created = true; }
-                catch (IOException) { if (!File.Exists(Path)) throw; }
+                try
+                {
+                    File.Move(temporary, Path);
+                    Created = true;
+                }
+                catch (IOException)
+                {
+                    if (!File.Exists(Path))
+                        throw;
+                }
             }
-            finally { if (File.Exists(temporary)) File.Delete(temporary); }
+            finally
+            {
+                if (File.Exists(temporary))
+                    File.Delete(temporary);
+            }
         }
 
         void ReadExisting()
@@ -130,38 +187,62 @@ namespace KerbalOverEngineering.Options
             foreach (string source in File.ReadAllLines(Path, Encoding.UTF8))
             {
                 string line = source.Trim();
-                if (line.Length == 0 || line.StartsWith("//") || line.StartsWith("#")) continue;
-                if (line.StartsWith("[") && line.EndsWith("]")) { group = line.Substring(1, line.Length - 2).Trim(); continue; }
+                if (line.Length == 0 || line.StartsWith("//") || line.StartsWith("#"))
+                    continue;
+                if (line.StartsWith("[") && line.EndsWith("]"))
+                {
+                    group = line.Substring(1, line.Length - 2).Trim();
+                    continue;
+                }
+
                 int split = line.IndexOf('=');
-                if (split < 1) continue;
+                if (split < 1)
+                    continue;
                 string name = line.Substring(0, split).Trim();
                 string key = name == "schemaVersion" ? name : group + "." + name;
-                if (values.ContainsKey(key)) duplicate.Add(key);
+                if (values.ContainsKey(key))
+                    duplicate.Add(key);
                 values[key] = line.Substring(split + 1).Trim();
             }
+
             string schema;
-            if (!values.TryGetValue("schemaVersion", out schema) || schema != Catalog.SchemaVersion.ToString() || duplicate.Contains("schemaVersion")) return;
+            if (!values.TryGetValue("schemaVersion", out schema)
+                || schema != Catalog.SchemaVersion.ToString()
+                || duplicate.Contains("schemaVersion"))
+                return;
             foreach (Feature feature in Catalog.Features)
             {
-                string value; bool enabled;
-                if (!duplicate.Contains(feature.Key) && values.TryGetValue(feature.Key, out value) && bool.TryParse(value, out enabled)) requested[feature.Key] = enabled;
+                string value;
+                bool enabled;
+                if (!duplicate.Contains(feature.Key) && values.TryGetValue(feature.Key, out value) && bool.TryParse(value, out enabled))
+                    requested[feature.Key] = enabled;
             }
         }
 
         public bool Enabled(string key)
         {
-            bool enabled; Feature feature;
-            if (!requested.TryGetValue(key, out enabled) || !enabled || unavailable.ContainsKey(key) || !features.TryGetValue(key, out feature)) return false;
+            bool enabled;
+            Feature feature;
+            if (!requested.TryGetValue(key, out enabled)
+                || !enabled
+                || unavailable.ContainsKey(key)
+                || !features.TryGetValue(key, out feature))
+                return false;
             return feature.Parent == null || Enabled(feature.Parent);
         }
+
         public string Reason(string key)
         {
             string reason;
-            if (unavailable.TryGetValue(key, out reason)) return reason;
+            if (unavailable.TryGetValue(key, out reason))
+                return reason;
             Feature feature;
-            if (!features.TryGetValue(key, out feature)) return "Unknown option";
-            if (!requested[key]) return "Disabled or missing in config";
-            if (feature.Parent != null && !Enabled(feature.Parent)) return "Requires " + feature.Parent;
+            if (!features.TryGetValue(key, out feature))
+                return "Unknown option";
+            if (!requested[key])
+                return "Disabled or missing in config";
+            if (feature.Parent != null && !Enabled(feature.Parent))
+                return "Requires " + feature.Parent;
             return null;
         }
     }
