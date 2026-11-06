@@ -1,9 +1,9 @@
 <p align="center">
-  <img src="assets/readme-hero.svg" alt="KerbalOverEngineering — measured performance improvements, without generated frames" width="100%">
+  <img src="assets/readme-hero-0.15.5.svg" alt="KerbalOverEngineering 0.15.5 — current results without generated frames" width="100%">
 </p>
 
 <p align="center">
-  <a href="https://github.com/rockmeowstar/ksp_koe/releases/latest"><img src="https://img.shields.io/github/v/release/rockmeowstar/ksp_koe?style=flat-square&amp;color=8b5cf6" alt="Latest release"></a>
+  <a href="https://github.com/rockmeowstar/ksp_koe/releases/tag/0.15.5"><img src="https://img.shields.io/badge/release-0.15.5-8b5cf6?style=flat-square" alt="Release 0.15.5"></a>
   <img src="https://img.shields.io/badge/KSP-1.12.5-64748b?style=flat-square" alt="KSP 1.12.5">
   <img src="https://img.shields.io/badge/Feature_flags-56-14b8a6?style=flat-square" alt="56 feature flags">
   <img src="https://img.shields.io/badge/Local_checks-verified_2026--11--07-22c55e?style=flat-square" alt="Local validation snapshot: November 7, 2026">
@@ -12,7 +12,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/rockmeowstar/ksp_koe/releases/latest">Download</a> ·
+  <a href="https://github.com/rockmeowstar/ksp_koe/releases/tag/0.15.5">Download 0.15.5</a> ·
   <a href="https://spacedock.info/mod/4787/KerbalOverengineering%20(KOE)">SpaceDock / CKAN</a> ·
   <a href="https://forum.kerbalspaceprogram.com/topic/232077-1125-kerbaloverengineering-koe-performance-optimization-for-ksp-and-its-mods/">Forum</a> ·
   <a href="https://github.com/rockmeowstar/ksp_koe/issues">Report an issue</a>
