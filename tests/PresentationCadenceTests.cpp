@@ -1,5 +1,6 @@
 #include "PresentationCadence.h"
 #include "FrameBudget.h"
+#include "FrameTimeline.h"
 #include "TargetFrameRate.h"
 #include <cmath>
 #include <iostream>
@@ -93,9 +94,42 @@ int main()
         Check(clock.Ready(1.017),"Presentation missed its next target period");
         clock.Presented(1.017,60);
         Check(!clock.Ready(1.025),"Presentation clock repeated a consumed slot");
+        clock.Presented(1.032,60);
+        Check(!clock.Ready(1.034),"Late presentation created a catch-up burst");
+        clock.Presented(1.08,60);
+        Check(!clock.Ready(1.09),"A missed slot shortened the next display interval");
         clock.Reset();
         Check(clock.Ready(1.025),"Hidden output retained an old pacing deadline");
         CheckHistoryAndInvalidIntervals();
+        FrameTimeline timeline;
+        Check(!timeline.Newer(1.01),"Interpolation started before a real-image anchor");
+        Check(!FrameTimeline::CanAnchor(1,1.04),"An old real image replaced a newer visible source");
+        Check(FrameTimeline::CanAnchor(1.04,1.04),"The latest real image could not anchor the timeline");
+        timeline.Shown(1.04);
+        Check(!timeline.Newer(1.02),"A generated pose moved backward from the visible real image");
+        for(unsigned phase=1;phase<=3;phase++)
+        {
+            double sample=FrameTimeline::SampleTime(1.04,1.12,phase,3);
+            Check(timeline.Newer(sample),"Ordered interpolation failed to advance visible scene time");
+            timeline.Shown(sample);
+            Check(!timeline.Newer(sample),"An already displayed temporal sample was accepted twice");
+        }
+        timeline.Shown(1.12);
+        Check(!timeline.Newer(1.1),"An older queued frame rolled the scene back");
+        timeline.Shown(1.0);
+        Check(!timeline.Newer(1.1),"A late completion rewound the presentation watermark");
+        Check(FrameTimeline::HasTime(1.05,FrameTimeline::Deadline(1.04,.08),1./75),"A ready frame lost its display budget");
+        Check(!FrameTimeline::HasTime(1.11,1.12,1./75),"A frame without time for the next refresh was accepted");
+        Check(!FrameTimeline::HasTime(1.13,1.12,1./75),"A late GPU completion received a new deadline");
+        timeline.Reset();
+        Check(!timeline.Newer(1.2),"Hiding the overlay retained its old temporal anchor");
+        for(double invalid:{0.,-1.,std::numeric_limits<double>::infinity(),std::numeric_limits<double>::quiet_NaN()})
+        {
+            Check(!FrameTimeline::HasTime(invalid,1.12,1./75),"Invalid current time was accepted");
+            Check(!FrameTimeline::HasTime(1.05,invalid,1./75),"Invalid deadline was accepted");
+            Check(!FrameTimeline::HasTime(1.05,1.12,invalid),"Invalid refresh interval was accepted");
+            Check(!std::isfinite(FrameTimeline::SampleTime(invalid,1.12,1,3)),"Invalid source timestamp produced a pose");
+        }
         Check(std::abs(FrameBudget::Input(1, .04, 1.01) - .03) < 1e-12, "GPU input budget was charged twice");
         Check(FrameBudget::Input(1, .04, 1.05) == 0, "GPU input wait exceeded one source interval");
         Check(std::abs(FrameBudget::Decision(1, .04, 1.03, 1.035) - .015) < 1e-12, "GPU-ready input lost its processing budget");

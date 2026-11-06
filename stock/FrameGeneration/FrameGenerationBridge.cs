@@ -15,6 +15,17 @@ namespace KoeFrameGeneration
         static extern IntPtr LoadLibraryW(string path);
         [DllImport("kernel32", CharSet = CharSet.Ansi, ExactSpelling = true)]
         static extern IntPtr GetProcAddress(IntPtr module, string name);
+        [DllImport("kernel32", ExactSpelling = true)]
+        static extern bool QueryPerformanceCounter(out long value);
+        [DllImport("kernel32", ExactSpelling = true)]
+        static extern bool QueryPerformanceFrequency(out long value);
+        static double WindowsClock()
+        {
+            long value,frequency;
+            if(!QueryPerformanceCounter(out value) || !QueryPerformanceFrequency(out frequency) || frequency<=0)
+                throw new InvalidOperationException("Windows performance clock unavailable");
+            return value/(double)frequency;
+        }
         [UnmanagedFunctionPointer(CallingConvention.Cdecl, CharSet = CharSet.Unicode)]
         delegate int Initialize(string library);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
@@ -378,7 +389,7 @@ namespace KoeFrameGeneration
             {
                 var beginCommands = new CommandBuffer { name = "KOE layer frame identity" };
                 layerBegins.Add(camera, beginCommands);
-                camera.AddCommandBuffer(singlePassLayers?CameraEvent.AfterForwardOpaque:CameraEvent.BeforeForwardAlpha, beginCommands);
+                camera.AddCommandBuffer(CameraEvent.BeforeForwardAlpha, beginCommands);
                 var endCommands = new CommandBuffer { name = "KOE translucent coverage end" };
                 endCommands.IssuePluginEvent(renderEvent, 10);
                 layerEnds.Add(camera, endCommands);
@@ -483,7 +494,7 @@ namespace KoeFrameGeneration
             silhouetteBuffers.Clear();
             foreach (var entry in layerBegins)
             {
-                if (entry.Key != null) entry.Key.RemoveCommandBuffer(singlePassLayers?CameraEvent.AfterForwardOpaque:CameraEvent.BeforeForwardAlpha, entry.Value);
+                if (entry.Key != null) entry.Key.RemoveCommandBuffer(CameraEvent.BeforeForwardAlpha, entry.Value);
                 entry.Value.Dispose();
             }
             layerBegins.Clear();
@@ -531,7 +542,7 @@ namespace KoeFrameGeneration
             float now = Time.realtimeSinceStartup;
             double seconds = now - last;
             string row = "{\"t\":" + F(now)
-                + ",\"qpcSeconds\":" + F(System.Diagnostics.Stopwatch.GetTimestamp()/(double)System.Diagnostics.Stopwatch.Frequency)
+                + ",\"qpcSeconds\":" + F(WindowsClock())
                 + ",\"scene\":\"" + HighLogic.LoadedScene
                 + "\",\"enabled\":" + values[0]
                 + ",\"allowed\":" + values[1]

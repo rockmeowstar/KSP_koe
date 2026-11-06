@@ -171,8 +171,9 @@ groupshared uint totals[6];
     uint flags=verifyComposition!=0?validity.Load(int3(pixel,0)):1;
     bool exact=flags==1;
     bool protectedPixel=verifyComposition!=0?flags==2:protectedAt(pixel,real.rgb);
+    bool movingPixel=any(round(previousWorld.Load(int3(pixel,0)).rgb*255)!=round(real.rgb*255));
     float4 result=real;
-    if((exact && !protectedPixel)||writeLayers!=0)
+    if((exact && !protectedPixel && movingPixel)||writeLayers!=0)
     {
         float3 color=0;bool anyValid=false;
         [unroll]for(uint layer=0;layer<8;layer++)
@@ -197,8 +198,14 @@ groupshared uint totals[6];
         if(writeLayers!=0)reconstructed[uint3(id.xy,8)]=atmosphere;
         if(atmosphere.a>.01)color=film(inverseFilm(color)*transmission+atmosphere.rgb);
         anyValid=anyValid||atmosphereValid;
-        if(exact && anyValid && !protectedPixel && all(isfinite(color)))
-        {result.rgb=saturate(color);InterlockedAdd(totals[4],1);}
+        if(exact && anyValid && !protectedPixel && movingPixel && all(isfinite(color)))
+        {
+            float3 predicted=round(saturate(color)*255)/255;
+            // AI-generated comment: Preserve static endpoint pixels exactly. Round once to the
+            // displayed RGB format; recomposition rounding is not new temporal information.
+            if(any(predicted!=real.rgb))result.rgb=predicted;
+            InterlockedAdd(totals[4],1);
+        }
     }
     else if(!exact && !protectedPixel)InterlockedAdd(totals[1],1);
     if(any(round(result.rgb*255)!=round(real.rgb*255)))InterlockedAdd(totals[5],1);

@@ -817,6 +817,28 @@ int main(int argc, char **argv)
                 && duplicate->counts[7]==0,"An identical temporal phase was accepted as a new image");
         Require(duplicate->counts[8]==temporal[1]->counts[8] && duplicate->counts[9]==temporal[1]->counts[9],
                 "Identical images produced inconsistent GPU fingerprints");
+        context->CopyResource(readOutput.Get(),temporalImages[1].Get());
+        Check(context->Map(readOutput.Get(),0,D3D11_MAP_READ,0,&mapped));
+        unsigned phaseWidth=temporalDesc.Width,phaseHeight=temporalDesc.Height;
+        std::vector<unsigned char> alphaOnly(phaseWidth*phaseHeight*4);
+        for(unsigned y=0;y<phaseHeight;y++)memcpy(alphaOnly.data()+y*phaseWidth*4,static_cast<unsigned char*>(mapped.pData)+y*mapped.RowPitch,phaseWidth*4);
+        context->Unmap(readOutput.Get(),0);
+        for(unsigned i=3;i<alphaOnly.size();i+=4)alphaOnly[i]=0;
+        ComPtr<ID3D11Texture2D> alphaImage;ComPtr<ID3D11ShaderResourceView> alphaView;
+        D3D11_SUBRESOURCE_DATA alphaData{alphaOnly.data(),phaseWidth*4,0};
+        Check(device->CreateTexture2D(&temporalDesc,&alphaData,&alphaImage));
+        Check(device->CreateShaderResourceView(alphaImage.Get(),nullptr,&alphaView));
+        auto alphaRepeat=backend.Phase(duplicateSource,.5f);
+        backend.CheckComposed(alphaRepeat,duplicateView.Get(),ConfidenceGateFixture::CurrentImage(backend,*duplicateSource),alphaView.Get());
+        backend.Seal(alphaRepeat);
+        Require(backend.Wait(),"Alpha-only comparison did not finish on the GPU");
+        Require(ConfidenceGateFixture::Resolve(backend,alphaRepeat),"Alpha-only comparison readback was unavailable");
+        if(alphaRepeat->counts[7]!=0 || alphaRepeat->eligible)
+        {
+            std::ostringstream detail;detail<<"Alpha-only comparison: visible RGB differences="<<alphaRepeat->counts[7]
+                <<" eligible="<<alphaRepeat->eligible<<" generated differences="<<alphaRepeat->counts[5];
+            throw std::runtime_error(detail.str());
+        }
         std::uint32_t corrupt[] = {w * h + 1, 0, 0, w * h};
         Require(!ConfidenceGate::Accept(corrupt, w * h), "Corrupt candidate count accepted");
         std::cout << "Frame confidence: " << checks << " GPU checks passed.\n";

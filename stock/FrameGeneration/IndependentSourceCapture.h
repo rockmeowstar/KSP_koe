@@ -86,7 +86,7 @@ float3 film(float3 x)
     if(owner==0 && (effects&2)!=0)
     {
         float4 value=sky.Load(int3(cameraPixel,0));
-        if(value.a<.99)base=value.rgb;
+        if((effects&16)!=0?value.a>.99:value.a<.99)base=value.rgb;
     }
     uint finalKind=uint(round(classes.Load(int3(p,0)).r*255));
     if(finalKind>=1 && finalKind<=5)
@@ -155,7 +155,7 @@ cbuffer Settings:register(b0){uint2 size;uint reset;uint flags;}
         Check(device->CreateBuffer(&cb,nullptr,&parameters));
     }
     bool Capture(ID3D11Texture2D *opaque,ID3D11Texture2D *classes,ID3D11Texture2D *clouds,ID3D11Texture2D *firefly,ID3D11Texture2D *sky=nullptr,
-        ID3D11Texture2D *atmosphereColor=nullptr,ID3D11Texture2D *atmosphereExtinction=nullptr,ID3D11Texture2D *atmosphereDepth=nullptr,ID3D11Texture2D *waterfall=nullptr)
+        ID3D11Texture2D *atmosphereColor=nullptr,ID3D11Texture2D *atmosphereExtinction=nullptr,ID3D11Texture2D *atmosphereDepth=nullptr,ID3D11Texture2D *waterfall=nullptr,bool ownSky=false)
     {
         if(!opaque||!classes)return false;
         if(!opaqueReady)return false;
@@ -164,7 +164,7 @@ cbuffer Settings:register(b0){uint2 size;uint reset;uint flags;}
         try
         {
             bool atmosphere=atmosphereColor&&atmosphereExtinction&&atmosphereDepth;
-            unsigned settings[]={width,height,unsigned(clouds!=nullptr),unsigned(firefly!=nullptr)|(sky?2u:0u)|(atmosphere?4u:0u)|(waterfall?8u:0u)};
+            unsigned settings[]={width,height,unsigned(clouds!=nullptr),unsigned(firefly!=nullptr)|(sky?2u:0u)|(atmosphere?4u:0u)|(waterfall?8u:0u)|(ownSky?16u:0u)};
             context->UpdateSubresource(parameters.Get(),0,nullptr,settings,0,0);auto *cb=parameters.Get();auto *uav=target.Get();
             ID3D11ShaderResourceView *inputs[]={GetView(opaque),GetView(classes),GetView(clouds),GetView(firefly),GetView(sky),opaqueSnapshotView.Get(),
                 GetView(atmosphereColor),GetView(atmosphereExtinction),GetView(atmosphereDepth),GetView(waterfall)};

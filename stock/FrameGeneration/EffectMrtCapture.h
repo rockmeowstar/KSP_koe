@@ -43,6 +43,7 @@ class EffectMrtCapture
     std::unordered_map<ID3D11PixelShader*,Program> programs;
     std::unordered_map<ID3D11PixelShader*,Program*> copies;
     std::unordered_map<ID3D11BlendState*,Blend> blends;
+    std::unordered_map<ID3D11BlendState*,Blend> skyBlends;
     std::unordered_map<ID3D11BlendState*,Ptr<ID3D11BlendState>> blendOriginals;
     std::mutex programMutex;
     BCRYPT_ALG_HANDLE hash{};
@@ -52,7 +53,7 @@ class EffectMrtCapture
     FLOAT factors[4]{1,1,1,1};UINT sampleMask=0xffffffff;
     Ptr<ID3D11RenderTargetView> targets[8];Ptr<ID3D11DepthStencilView> depth;
     unsigned targetCount{},width{},height{};
-    Layer layers[2];
+    Layer layers[3];
     int frame=-1;
     bool attached{},uavMode{},world{};
     std::atomic<bool> enabled{};
@@ -85,7 +86,7 @@ class EffectMrtCapture
     }
     void Register(ID3D11PixelShader *shader,const void *data,size_t size,unsigned layer)
     {
-        auto bytes=DxbcMrt::DuplicateColor(data,size);Ptr<ID3D11PixelShader> copy;
+        auto bytes=DxbcMrt::DuplicateColor(data,size,layer==3);Ptr<ID3D11PixelShader> copy;
         Check(originalCreate(device.Get(),bytes.data(),bytes.size(),nullptr,&copy));
         std::lock_guard<std::mutex> lock(programMutex);
         auto entry=programs.emplace(shader,Program{shader,copy,layer});
@@ -98,7 +99,7 @@ class EffectMrtCapture
         auto copy=copies.find(shader);return copy==copies.end()?nullptr:copy->second;
     }
     bool OwnTargets(UINT count,ID3D11RenderTargetView *const *views)const
-    {return count==2 && views && views[1] && (views[1]==layers[0].target.Get() || views[1]==layers[1].target.Get());}
+    {return count==2 && views && views[1] && (views[1]==layers[0].target.Get() || views[1]==layers[1].target.Get() || views[1]==layers[2].target.Get());}
     void StoreTargets(UINT count,ID3D11RenderTargetView *const *views,ID3D11DepthStencilView *dsv)
     {
         targetCount=(std::min)(count,8u);for(unsigned i=0;i<8;i++)targets[i]=i<targetCount&&views?views[i]:nullptr;
@@ -106,7 +107,9 @@ class EffectMrtCapture
     }
     ID3D11BlendState *CaptureBlend()
     {
-        auto found=blends.find(expectedBlend.Get());if(found!=blends.end())return found->second.copy.Get();
+        bool sky=program && program->layer==3;
+        auto &cache=sky?skyBlends:blends;
+        auto found=cache.find(expectedBlend.Get());if(found!=cache.end())return found->second.copy.Get();
         D3D11_BLEND_DESC desc{};
         if(expectedBlend)expectedBlend->GetDesc(&desc);
         else
@@ -125,11 +128,12 @@ class EffectMrtCapture
         {
             desc.IndependentBlendEnable=TRUE;rt.SrcBlendAlpha=D3D11_BLEND_ZERO;rt.DestBlendAlpha=rt.DestBlend;
             rt.BlendOpAlpha=D3D11_BLEND_OP_ADD;rt.RenderTargetWriteMask=D3D11_COLOR_WRITE_ENABLE_ALL;desc.RenderTarget[1]=rt;
+            if(sky)desc.RenderTarget[1].BlendEnable=FALSE;
             if(FAILED(device->CreateBlendState(&desc,&value.copy)))value.copy.Reset();
         }
         if(!value.copy)unsupported++;
         else blendOriginals.emplace(value.copy.Get(),expectedBlend);
-        return blends.emplace(expectedBlend.Get(),std::move(value)).first->second.copy.Get();
+        return cache.emplace(expectedBlend.Get(),std::move(value)).first->second.copy.Get();
     }
     Layer *Target()
     {
@@ -145,7 +149,7 @@ class EffectMrtCapture
             layer.target.Reset();layer.image.Reset();desc.MipLevels=desc.ArraySize=1;desc.Format=DXGI_FORMAT_R16G16B16A16_FLOAT;
             desc.BindFlags=D3D11_BIND_RENDER_TARGET|D3D11_BIND_SHADER_RESOURCE;desc.MiscFlags=desc.CPUAccessFlags=0;desc.Usage=D3D11_USAGE_DEFAULT;
             Check(device->CreateTexture2D(&desc,nullptr,&layer.image));Check(device->CreateRenderTargetView(layer.image.Get(),nullptr,&layer.target));
-            FLOAT clear[]={0,0,0,1};context->ClearRenderTargetView(layer.target.Get(),clear);
+            FLOAT clear[]={0,0,0,program->layer==3?0.f:1.f};context->ClearRenderTargetView(layer.target.Get(),clear);
         }
         return &layer;
     }
@@ -222,7 +226,10 @@ class EffectMrtCapture
             auto alias=capture->blendOriginals.find(state);
             capture->expectedBlend=alias==capture->blendOriginals.end()?state:alias->second.Get();
         }
-        capture->sampleMask=mask;if(factor)memcpy(capture->factors,factor,sizeof(capture->factors));capture->Apply();
+        capture->sampleMask=mask;
+        if(factor)memcpy(capture->factors,factor,sizeof(capture->factors));
+        else for(auto &value:capture->factors)value=1;
+        capture->Apply();
     }
     static void STDMETHODCALLTYPE ShaderGetHook(ID3D11DeviceContext *ctx,ID3D11PixelShader **shader,ID3D11ClassInstance **instances,UINT *count)
     {
@@ -285,13 +292,14 @@ public:
     {
         if(frame!=value)
         {
-            frame=value;FLOAT clear[]={0,0,0,1};for(auto &layer:layers){layer.touched=false;if(layer.target)context->ClearRenderTargetView(layer.target.Get(),clear);}
+            frame=value;
+            for(unsigned i=0;i<3;i++){auto &layer=layers[i];layer.touched=false;FLOAT clear[]={0,0,0,i==2?0.f:1.f};if(layer.target)context->ClearRenderTargetView(layer.target.Get(),clear);}
         }
         world=true;Apply();
     }
     void EndWorld(){world=false;Apply();}
     ID3D11Texture2D *Image(unsigned layer,int value)const
-    {return layer>=1&&layer<=2&&frame==value&&layers[layer-1].touched?layers[layer-1].image.Get():nullptr;}
+    {return layer>=1&&layer<=3&&frame==value&&layers[layer-1].touched?layers[layer-1].image.Get():nullptr;}
     void Read(long long *values)const
     {values[0]=recognized.load();values[1]=attachments.load();values[2]=unsupported.load();values[3]=rewriteFailures.load();}
 };

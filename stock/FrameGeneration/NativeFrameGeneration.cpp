@@ -26,7 +26,6 @@ using Interpolator = FrucD3D11;
 #include "ReShadeIntegration.h"
 #include "FinalPresentation.h"
 #include "FrameBudget.h"
-#include "GpuQueueLimit.h"
 #include "TargetFrameRate.h"
 #include "DisplayRefresh.h"
 #include "LayerTiming.h"
@@ -36,6 +35,7 @@ using Interpolator = FrucD3D11;
 #include "IndependentSourceCapture.h"
 #include "AtmosphereSourceProbe.h"
 #include "PresentedFrameSample.h"
+#include "FrameTimeline.h"
 #include "EffectMrtCapture.h"
 using Microsoft::WRL::ComPtr;
 static bool IndependentMode()
@@ -233,6 +233,7 @@ struct Shared
     double lastPresent{}, cadence = 1.0 / 30;
     std::uint64_t cleanSerial{}, usedSerial{};
     std::atomic<double> lastCaptured{};
+    std::atomic<std::uint64_t> latestWorldSerial{};
 };
 static std::shared_ptr<Shared> shared;
 static std::shared_ptr<Shared> independentCaptureShared;
@@ -965,20 +966,21 @@ static void __stdcall BeforeUI(int event)
             if(SinglePassMode())
             {
                 auto *capture=EffectMrtCapture::Current();
-                sky=capture?capture->Image(1,shared->layerFrame):nullptr;
+                sky=capture?capture->Image(3,shared->layerFrame):nullptr;
                 fire=capture?capture->Image(2,shared->layerFrame):nullptr;waterfall=nullptr;
                 if(fire)independentFireflyCopies++;
             }
             bool atmosphere=atmosphereProbe.Tone()==2;
             int packTiming=shared->layerTiming.Begin(shared->source.Get(),shared->context.Get(),2,shared->cleanSerial+1);
             shared->cleanHasLayers=shared->independentSources->Capture(shared->contributions[1].before.Get(),shared->cleanSilhouette.Get(),cloudInput.Get(),fire,sky,
-                atmosphere?atmosphereProbe.Color():nullptr,atmosphere?atmosphereProbe.Extinction():nullptr,atmosphere?atmosphereProbe.Depth():nullptr,waterfall);
+                atmosphere?atmosphereProbe.Color():nullptr,atmosphere?atmosphereProbe.Extinction():nullptr,atmosphere?atmosphereProbe.Depth():nullptr,waterfall,SinglePassMode());
             shared->layerTiming.End(shared->context.Get(),packTiming);
             shared->cleanCloudFade=independentCloudFade.load();
         }
         if(IndependentMode())
         {if(shared->cleanHasLayers)independentPacked++;else independentUnavailable++;}
         shared->cleanSerial++;
+        shared->latestWorldSerial=shared->cleanSerial;
         if(SinglePassMode())if(auto *capture=EffectMrtCapture::Current())capture->EndWorld();
         cleanCopies++;
     }
@@ -1037,6 +1039,7 @@ struct Presenter
     TargetFrameRate::PresentationClock presentationClock;
     HWND window{};
     std::shared_ptr<Shared> source;
+    HWND (WINAPI *foregroundWindow)()=&GetForegroundWindow;
     ComPtr<ID3D11Device> device;
     ComPtr<ID3D11Device1> device1;
     ComPtr<ID3D11DeviceContext> context;
@@ -1089,11 +1092,15 @@ struct Presenter
     ComPtr<ID3D11VertexShader> vs;
     ComPtr<ID3D11PixelShader> ps, uiPS;
     ComPtr<ID3D11RenderTargetView> finalView, backView;
+    ComPtr<ID3D11DeviceContext4> presentationContext;
+    ComPtr<ID3D11Fence> presentationFence;
+    ComPtr<ID3D11Texture2D> pendingImage;
+    std::uint64_t copySequence{},copyFenceValue{};
+    bool pendingPresentation{},copyMidpoint{},copyComposed{};
     ComPtr<IDXGIKeyedMutex> finalMutexes[3];
     ComPtr<IDXGIKeyedMutex> silhouetteMutexes[3];
     ComPtr<ID3D11ShaderResourceView> interpolatedView;
     std::unique_ptr<Interpolator> fruc;
-    GpuQueueLimit sourceQueue;
     struct GpuFrame
     {
         struct PhaseFrame
@@ -1102,26 +1109,31 @@ struct Presenter
             ComPtr<ID3D11Texture2D> composed;
             ComPtr<ID3D11RenderTargetView> target;
             ComPtr<ID3D11ShaderResourceView> view;
+            double sampleTime{};
             bool resolved{};
         };
         std::shared_ptr<Interpolator::Ticket> ticket;
         ComPtr<ID3D11Texture2D> composed, real;
         ComPtr<ID3D11RenderTargetView> target;
         ComPtr<ID3D11ShaderResourceView> composedView, realView;
-        double timestamp{}, cadence{}, deadline{};
+        double beforeTimestamp{}, timestamp{}, cadence{}, deadline{};
+        std::uint64_t serial{};
         bool requested{}, resolved{}, late{};
         std::vector<PhaseFrame> phases;
         unsigned phaseCount{};
+        unsigned plannedPhases{};
         unsigned nextPhase{};
     };
     std::array<GpuFrame, 2> frames;
     std::deque<unsigned> readyFrames;
     bool displaying{};
+    FrameTimeline timeline;
     bool lastHashKnown{};
     std::uint64_t lastPresentedHash{};
     unsigned phaseCapacity = 1;
     double nextDisplayCheck{};
     double lastTimestamp{}, interval = 1.0 / 30, refreshInterval = 1.0 / TargetFrameRate::Default;
+    std::uint64_t lastInputSerial{};
     struct Pending
     {
         std::shared_ptr<Interpolator::Ticket> ticket;
@@ -1158,6 +1170,9 @@ struct Presenter
                                 &device, nullptr, &context),
               "presentation device");
         Check(device.As(&device1), "presentation device1");
+        ComPtr<ID3D11Device5> fenceDevice;Check(device.As(&fenceDevice),"presentation fence device");
+        Check(context.As(&presentationContext),"presentation fence context");
+        Check(fenceDevice->CreateFence(0,D3D11_FENCE_FLAG_NONE,IID_PPV_ARGS(&presentationFence)),"presentation copy fence");
         WNDCLASSW wc{};
         wc.lpfnWndProc = WindowProc;
         wc.hInstance = GetModuleHandleW(nullptr);
@@ -1197,11 +1212,8 @@ struct Presenter
         }
         factory->MakeWindowAssociation(window, DXGI_MWA_NO_ALT_ENTER | DXGI_MWA_NO_WINDOW_CHANGES);
         ComPtr<IDXGIDevice1> latency;
-        if (SUCCEEDED(device.As(&latency)))
-        {
-            latency->SetMaximumFrameLatency(3);
-            latency->SetGPUThreadPriority(7);
-        }
+        Check(device.As(&latency),"presentation queue interface");
+        Check(latency->SetMaximumFrameLatency(1),"presentation queue limit");
         UpdateDisplay();
         Check(swap->GetBuffer(0, IID_PPV_ARGS(&back)), "presentation backbuffer");
         auto td = source->desc;
@@ -1445,7 +1457,7 @@ float4 main(float4 position : SV_Position) : SV_Target
     bool Visible()
     {
         return enabled.load() && allowed.load() && Seconds() - source->lastCaptured.load() < .5 &&
-               IsWindow(source->window) && GetForegroundWindow() == source->window && !IsIconic(source->window);
+               IsWindow(source->window) && foregroundWindow() == source->window && !IsIconic(source->window);
     }
     void Show()
     {
@@ -1500,11 +1512,39 @@ float4 main(float4 position : SV_Position) : SV_Target
         context->PSSetShaderResources(0, 3, empty);
         context->OMSetRenderTargets(0, nullptr, nullptr);
     }
-    bool Present(ID3D11Texture2D *texture, bool midpoint = false, bool composed = false)
+    void Hide()
+    {
+        if(IsWindowVisible(window))ShowWindow(window,SW_HIDE);
+        displaying=false;lastHashKnown=false;presentationClock.Reset();timeline.Reset();
+        pendingImage.Reset();copyFenceValue=0;pendingPresentation=false;
+    }
+    bool PreparePresentation(ID3D11Texture2D *texture,bool midpoint,bool composed,double deadline)
+    {
+        pendingPresentation=false;
+        if(!Visible() || !FrameTimeline::HasTime(Seconds(),deadline,refreshInterval))
+        {pendingImage.Reset();copyFenceValue=0;return false;}
+        if(!copyFenceValue || pendingImage.Get()!=texture || copyMidpoint!=midpoint || copyComposed!=composed)
+        {
+            if(midpoint && !composed)Compose(backView.Get());
+            else context->CopyResource(back.Get(),texture);
+            pendingImage=texture;copyMidpoint=midpoint;copyComposed=composed;
+            copyFenceValue=++copySequence;
+            Check(presentationContext->Signal(presentationFence.Get(),copyFenceValue),"presentation copy signal");
+            context->Flush();
+        }
+        auto completed=presentationFence->GetCompletedValue();
+        if(completed==std::numeric_limits<std::uint64_t>::max())throw std::runtime_error("Presentation device was removed");
+        if(completed<copyFenceValue)
+        {pendingPresentation=true;return false;}
+        return FrameTimeline::HasTime(Seconds(),deadline,refreshInterval);
+    }
+    bool Present(ID3D11Texture2D *texture, bool midpoint = false, bool composed = false,double deadline=0)
     {
         if (!Visible())
             return false;
-        if (midpoint && !composed)
+        bool scheduled=deadline>0;
+        if(scheduled && !PreparePresentation(texture,midpoint,composed,deadline))return false;
+        if (!scheduled && midpoint && !composed)
         {
             Compose(backView.Get());
 #ifdef KOE_CAPTURE_AUDIT
@@ -1512,7 +1552,7 @@ float4 main(float4 position : SV_Position) : SV_Target
                 Snapshot(back.Get(), auditComposed);
 #endif
         }
-        else
+        else if(!scheduled)
             context->CopyResource(back.Get(), texture);
         // AI-generated comment: External OSD hooks run after composition, on both real and generated
         // frames. The worker's ownPresent guard prevents recursive capture;
@@ -1529,7 +1569,10 @@ float4 main(float4 position : SV_Position) : SV_Target
                 presentationKind = previous;
             }
         } scope(midpoint ? 2 : 1);
-        HRESULT hr = FinalPresentation::Present(swap.Get(), nativeSwap.Get(), 1, 0);
+        if(scheduled && !FrameTimeline::HasTime(Seconds(),deadline,refreshInterval))return false;
+        pendingImage.Reset();copyFenceValue=0;pendingPresentation=false;
+        HRESULT hr = FinalPresentation::Present(swap.Get(), nativeSwap.Get(), 0, DXGI_PRESENT_DO_NOT_WAIT);
+        if(hr==DXGI_ERROR_WAS_STILL_DRAWING)return false;
         if(IndependentMode() && hr==S_OK)
         {
             DXGI_FRAME_STATISTICS statistics{};auto *chain=nativeSwap?nativeSwap.Get():swap.Get();
@@ -1574,21 +1617,80 @@ float4 main(float4 position : SV_Position) : SV_Target
         while (!readyFrames.empty())
         {
             auto &frame = frames[readyFrames.front()];
+            frame.late = !FrameTimeline::HasTime(Seconds(),frame.deadline,refreshInterval);
+            if(frame.late || !Visible() || !frame.phaseCount)
+            {
+                Hide();frame.nextPhase=frame.phaseCount;
+                // AI-generated comment: Make the original swapchain visible immediately. Keep
+                // in-flight buffers owned until their fence completes; they cannot hold the overlay.
+                if(!frame.resolved)return;
+                for(auto &phase:frame.phases)phase.ticket.reset();
+                frame.ticket.reset();readyFrames.pop_front();continue;
+            }
             if (!frame.resolved && !IndependentMode()) return;
-            frame.late = Seconds() > frame.deadline;
+            if(frame.resolved && std::none_of(frame.phases.begin(),frame.phases.begin()+frame.phaseCount,
+                [](const GpuFrame::PhaseFrame &phase){return phase.ticket->eligible;}))
+            {
+                Hide();for(auto &phase:frame.phases)phase.ticket.reset();
+                frame.ticket.reset();readyFrames.pop_front();continue;
+            }
+            if(!displaying)
+            {
+                if(!frame.resolved)return;
+                if(frame.serial<source->latestWorldSerial.load()
+                    || !FrameTimeline::CanAnchor(frame.timestamp,source->lastCaptured.load()))
+                {
+                    Hide();for(auto &phase:frame.phases)phase.ticket.reset();
+                    frame.ticket.reset();readyFrames.pop_front();continue;
+                }
+                if(!PreparePresentation(frame.real.Get(),false,true,frame.deadline))
+                {
+                    if(pendingPresentation)return;
+                    Hide();for(auto &phase:frame.phases)phase.ticket.reset();
+                    frame.ticket.reset();readyFrames.pop_front();continue;
+                }
+                // AI-generated comment: Start with the newest real image, never with an earlier
+                // interpolated pose. Subsequent phases must advance this visible scene time.
+                bool currentAnchor=false;
+                {
+                    std::lock_guard<std::mutex> guard(stateMutex);
+                    if(frame.serial>=source->latestWorldSerial.load()
+                        && FrameTimeline::CanAnchor(frame.timestamp,source->lastCaptured.load())
+                        && FrameTimeline::HasTime(Seconds(),frame.deadline,refreshInterval))
+                    {
+                        Show();currentAnchor=true;
+                    }
+                }
+                if(currentAnchor)
+                {
+                    if(Present(frame.real.Get(),false,true,frame.deadline))
+                    {
+                        displaying=true;timeline.Shown(frame.timestamp);realPresents++;
+                        const auto &counts=frame.phases[0].ticket->counts;
+                        lastPresentedHash=(std::uint64_t(counts[10])<<32)|counts[11];lastHashKnown=true;
+                        presentationClock.Presented(Seconds(),effectiveMilliFPS.load()/1000.);
+                    }
+                    else Hide();
+                }
+                else Hide();
+                for(auto &phase:frame.phases)phase.ticket.reset();
+                frame.ticket.reset();readyFrames.pop_front();continue;
+            }
             for (unsigned i=frame.nextPhase;i<frame.phaseCount;++i)
             {
                 auto &phase = frame.phases[i];
                 if(!phase.resolved)return;
                 const auto &ticket = *phase.ticket;
                 auto hash = (std::uint64_t(ticket.counts[8])<<32)|ticket.counts[9];
-                if (!ticket.eligible || frame.late || Seconds()>frame.deadline
+                double sample=phase.sampleTime;
+                if (!ticket.eligible || !timeline.Newer(sample) || !FrameTimeline::HasTime(Seconds(),frame.deadline,refreshInterval)
                     || (lastHashKnown && hash==lastPresentedHash)) {frame.nextPhase=i+1;continue;}
                 if(!presentationClock.Ready(Seconds()))return;
-                Show();
-                displaying = true;
-                if (Present(phase.composed.Get(), true, true))
+                bool shown=Present(phase.composed.Get(),true,true,frame.deadline);
+                if(pendingPresentation)return;
+                if(shown)
                 {
+                    timeline.Shown(sample);
                     generated++;
                     generatedPresents++;
                     if(IndependentMode())
@@ -1596,7 +1698,7 @@ float4 main(float4 position : SV_Position) : SV_Target
                         publishedChanged+=ticket.counts[5];publishedComposed+=ticket.counts[6];
                         publishedPixelTotal+=std::uint64_t(source->desc.Width)*source->desc.Height;
                         if(independentFireflyCopies.load()>10)
-                            PresentedFrameSample::Capture(device.Get(),context.Get(),frame.composed.Get(),phase.composed.Get(),frame.real.Get(),frame.timestamp,i+1,frame.phaseCount,ticket.counts[6]);
+                            PresentedFrameSample::Capture(device.Get(),context.Get(),frame.composed.Get(),phase.composed.Get(),frame.real.Get(),frame.timestamp,i+1,frame.plannedPhases,ticket.counts[6]);
                     }
                     lastHashKnown = true;
                     lastPresentedHash = hash;
@@ -1606,28 +1708,28 @@ float4 main(float4 position : SV_Position) : SV_Target
                 return;
             }
             if(!frame.resolved)return;
-            if (Visible() && displaying && !frame.late)
+            if (Visible() && displaying && timeline.Newer(frame.timestamp)
+                && FrameTimeline::HasTime(Seconds(),frame.deadline,refreshInterval))
             {
                 if(!presentationClock.Ready(Seconds()))return;
-                if (Present(frame.real.Get()))
+                const auto &counts=frame.phases[0].ticket->counts;
+                auto realHash=(std::uint64_t(counts[10])<<32)|counts[11];
+                bool same=lastHashKnown && realHash==lastPresentedHash;
+                bool shown=same || Present(frame.real.Get(),false,true,frame.deadline);
+                if(pendingPresentation)return;
+                if(shown)
                 {
-                    presentationClock.Presented(Seconds(),effectiveMilliFPS.load()/1000.);
-                    realPresents++;
-                    lastHashKnown = frame.phaseCount != 0;
-                    if(lastHashKnown)
+                    timeline.Shown(frame.timestamp);
+                    if(!same)
                     {
-                        const auto &counts=frame.phases[0].ticket->counts;
-                        lastPresentedHash=(std::uint64_t(counts[10])<<32)|counts[11];
+                        presentationClock.Presented(Seconds(),effectiveMilliFPS.load()/1000.);
+                        realPresents++;
                     }
+                    lastHashKnown=true;lastPresentedHash=realHash;
                 }
             }
             else
-            {
-                if (IsWindowVisible(window)) ShowWindow(window, SW_HIDE);
-                displaying = false;
-                lastHashKnown = false;
-                presentationClock.Reset();
-            }
+                Hide();
             for (auto &phase : frame.phases) phase.ticket.reset();
             frame.ticket.reset();
             readyFrames.pop_front();
@@ -1635,6 +1737,7 @@ float4 main(float4 position : SV_Position) : SV_Target
     }
     bool ProcessQueued(int index, double timestamp, double sourceInterval)
     {
+        if(pendingPresentation)return false;
         auto slot = std::find_if(frames.begin(), frames.end(), [](const GpuFrame &frame) { return !frame.ticket; });
         if (slot == frames.end()) return false;
         HRESULT acquired = mutexes[index]->AcquireSync(1, 0);
@@ -1667,6 +1770,17 @@ float4 main(float4 position : SV_Position) : SV_Target
                 throw std::runtime_error("Independent layer ownership lost");
             }
         }
+        auto releaseInput=[&]()
+        {
+            if(layerMutexes[index])Check(layerMutexes[index]->ReleaseSync(0),"queued independent layers release");
+            Check(silhouetteMutexes[index]->ReleaseSync(0),"queued silhouette release");
+            Check(finalMutexes[index]->ReleaseSync(0),"queued UI release");
+            Check(mutexes[index]->ReleaseSync(0),"queued world release");
+            std::lock_guard<std::mutex> lock(stateMutex);source->slots[index].status=0;
+        };
+        if(!FrameTimeline::HasTime(Seconds(),FrameTimeline::Deadline(timestamp,sourceInterval),refreshInterval)
+            || timestamp<=lastTimestamp || source->slots[index].serial<=lastInputSerial)
+        {releaseInput();skipped++;return true;}
         auto begin = Clock::now();
         UpdateDisplay();
         Convert(views[index].Get(), inputView.Get());
@@ -1690,7 +1804,9 @@ float4 main(float4 position : SV_Position) : SV_Target
 #endif
         interval = sourceInterval;
         double pairInterval=lastTimestamp>0?timestamp-lastTimestamp:sourceInterval;
+        slot->beforeTimestamp=lastTimestamp;
         lastTimestamp = timestamp;
+        lastInputSerial=slot->serial=source->slots[index].serial;
         if (!slot->real)
         {
             D3D11_TEXTURE2D_DESC desc{};
@@ -1709,8 +1825,7 @@ float4 main(float4 position : SV_Position) : SV_Target
         slot->timestamp = timestamp;
         slot->cadence = interval;
         slot->resolved = slot->late = false;
-        // AI-generated comment: Two buffers cover the current GPU frame and one frame of presentation lookahead.
-        slot->deadline = timestamp + interval * frames.size();
+        slot->deadline=FrameTimeline::Deadline(timestamp,interval);
 #ifdef KOE_DIRECT_FLOW
         if(IndependentMode())fruc->SetLayerInput(source->slots[index].hasLayers?openedLayers[index].Get():nullptr,
             source->slots[index].cloudFilmic,source->slots[index].cloudFade);
@@ -1718,24 +1833,19 @@ float4 main(float4 position : SV_Position) : SV_Target
         slot->ticket = fruc->Submit(input.Get(), timestamp, false, true,
             hasSilhouette ? silhouetteFrame.Get() : nullptr);
         context->Flush();
-        if(layerMutexes[index])Check(layerMutexes[index]->ReleaseSync(0),"queued independent layers release");
-        Check(silhouetteMutexes[index]->ReleaseSync(0), "queued silhouette release");
-        Check(finalMutexes[index]->ReleaseSync(0), "queued UI release");
-        Check(mutexes[index]->ReleaseSync(0), "queued world release");
-        {
-            std::lock_guard<std::mutex> lock(stateMutex);
-            source->slots[index].status = 0;
-        }
+        releaseInput();
         context->CopyResource(slot->real.Get(), finalImage.Get());
         slot->phaseCount = 0;
+        slot->plannedPhases=count;
         slot->nextPhase = 0;
-        if (count && fruc->PrepareFlow(slot->ticket))
+        if (count && FrameTimeline::HasTime(Seconds(),slot->deadline,refreshInterval) && fruc->PrepareFlow(slot->ticket))
         {
             flowExecutions++;
             Compose(slot->target.Get(), fruc->ReferenceImage(slot->ticket));
             if (slot->phases.size()<count) slot->phases.resize(count);
             for(unsigned i=0;i<count;++i)
             {
+                if(!FrameTimeline::HasTime(Seconds(),slot->deadline,refreshInterval))break;
                 auto &phase=slot->phases[i];
                 if(!phase.composed)
                 {
@@ -1746,6 +1856,7 @@ float4 main(float4 position : SV_Position) : SV_Target
                     Check(device->CreateShaderResourceView(phase.composed.Get(),nullptr,&phase.view),"temporal phase view");
                 }
                 phase.resolved=false;
+                phase.sampleTime=FrameTimeline::SampleTime(slot->beforeTimestamp,timestamp,i+1,count);
                 phase.ticket=fruc->Phase(slot->ticket,float(i+1)/float(count+1));
                 layerGpuUs[3]=static_cast<long long>(1000*fruc->ContourMilliseconds());
                 Compose(phase.target.Get());
@@ -1894,7 +2005,13 @@ float4 main(float4 position : SV_Position) : SV_Target
         Show();
         if (midpointAllowed)
         {
-            midPresented = Present(fruc->Output(), true);
+            double deadline=FrameTimeline::Deadline(timestamp,interval);
+            do
+            {
+                midPresented=Present(fruc->Output(),true,false,deadline);
+                if(!pendingPresentation)break;
+                SwitchToThread();
+            }while(FrameTimeline::HasTime(Seconds(),deadline,refreshInterval));
             auto until = Clock::now() + std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(
                                             std::max(0.0, interval * .5 - refreshInterval)));
             while (Clock::now() < until && !stopWorker.load() && Visible())
@@ -1972,16 +2089,13 @@ static void Worker()
                 }
                 if (presenter)
                 {
-                    presenter->sourceQueue.Disable();
-                    presenter->displaying = false;
-                    ShowWindow(presenter->window, SW_HIDE);
+                    presenter->Hide();
                 }
                 WaitForSingleObject(wakeEvent, 10);
                 continue;
             }
             if (!presenter || presenter->source != current)
                 presenter.reset(new Presenter(current));
-            presenter->sourceQueue.Enable(current->source.Get());
             if (index >= 0)
             {
                 // AI-generated comment: Release older queued images without interpolation; never build latency.

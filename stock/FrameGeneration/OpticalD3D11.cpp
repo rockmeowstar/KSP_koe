@@ -478,7 +478,7 @@ uint fingerprint(float4 color, uint position)
     if (all(id.xy < uint2(size)))
     {
         float4 a=composed.Load(int3(id.xy,0)),b=realImage.Load(int3(id.xy,0));
-        if(any(a!=b)) InterlockedAdd(changed, 1);
+        if(any(round(saturate(a.rgb)*255)!=round(saturate(b.rgb)*255))) InterlockedAdd(changed, 1);
         if(counterIndex==6)
         {
             uint position=id.y*uint(size.x)+id.x;

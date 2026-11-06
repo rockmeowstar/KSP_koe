@@ -50,12 +50,11 @@ class PresentationClock
 {
     double next = 0;
   public:
-    bool Ready(double now) const { return now >= next; }
+    bool Ready(double now) const { return std::isfinite(now) && now >= next; }
     void Presented(double now, double target)
     {
-        double period = 1/target;
-        if (!next || now-next>period) next=now;
-        next+=period;
+        if(!std::isfinite(now) || !std::isfinite(target) || now<0 || target<=0)return;
+        next=now+1/target;
     }
     void Reset() { next = 0; }
 };
