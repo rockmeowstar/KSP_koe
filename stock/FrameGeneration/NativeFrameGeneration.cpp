@@ -187,11 +187,9 @@ struct Shared
     int stencilMaskFrame = -1;
     std::unique_ptr<DeferredStencil> stencilDecoder;
     std::unique_ptr<FireflyLayerCapture> independentFirefly;
-    std::unique_ptr<FireflyLayerCapture> independentSky;
     std::unique_ptr<FireflyLayerCapture> independentWaterfall;
     std::unique_ptr<IndependentSourceCapture> independentSources;
     int independentFireflyFrame=-1;
-    int independentSkyFrame=-1;
     int independentWaterfallFrame=-1;
     int independentEffectTiming=-1;
     ComPtr<ID3D11Texture2D> independentLocalClasses;
@@ -223,7 +221,6 @@ struct Shared
 };
 static std::shared_ptr<Shared> shared;
 static std::shared_ptr<Shared> independentCaptureShared;
-static std::shared_ptr<Shared> independentSkyCaptureShared;
 static std::shared_ptr<Shared> independentWaterfallCaptureShared;
 extern "C" __declspec(dllexport) int CanFrameGenerationIndependentCapture()
 {
@@ -759,8 +756,8 @@ static void CaptureContribution(Shared &value, unsigned index, bool end)
 }
 static void __stdcall BeforeUI(int event)
 {
-    bool effectCapture=event==13||event==15||event==21||event==23||event==25||event==27;
-    if (((event < 1 || event > 27) && (event & 255) != 11 && (event & 255) != 12 && (event & 7) != 6)
+    bool effectCapture=event==13||event==15||event==25||event==27;
+    if (((event < 1 || event > 29) && (event & 255) != 11 && (event & 255) != 12 && (event & 7) != 6)
         || ((!enabled.load() || !allowed.load()) && !effectCapture))
         return;
     try
@@ -768,15 +765,14 @@ static void __stdcall BeforeUI(int event)
         std::lock_guard<std::mutex> lock(stateMutex);
         if(effectCapture && IndependentMode())
         {
-            bool sky=event==21||event==23;
             bool waterfall=event==25||event==27;
-            auto &pinned=waterfall?independentWaterfallCaptureShared:sky?independentSkyCaptureShared:independentCaptureShared;
-            if(event==13||event==21||event==25)
+            auto &pinned=waterfall?independentWaterfallCaptureShared:independentCaptureShared;
+            if(event==13||event==25)
             {
                 if(!shared)return;
-                auto &capture=waterfall?shared->independentWaterfall:sky?shared->independentSky:shared->independentFirefly;
+                auto &capture=waterfall?shared->independentWaterfall:shared->independentFirefly;
                 if(!capture)capture=std::make_unique<FireflyLayerCapture>(shared->source.Get(),shared->context.Get());
-                if(capture->Begin(sky))
+                if(capture->Begin())
                 {
                     pinned=shared;
                     shared->independentEffectTiming=shared->layerTiming.Begin(shared->source.Get(),shared->context.Get(),1,shared->cleanSerial+1);
@@ -786,11 +782,11 @@ static void __stdcall BeforeUI(int event)
             {
                 auto captured=pinned;
                 if(!captured)return;
-                auto &capture=waterfall?captured->independentWaterfall:sky?captured->independentSky:captured->independentFirefly;
+                auto &capture=waterfall?captured->independentWaterfall:captured->independentFirefly;
                 capture->End();
                 captured->layerTiming.End(captured->context.Get(),captured->independentEffectTiming);captured->independentEffectTiming=-1;
-                (waterfall?captured->independentWaterfallFrame:sky?captured->independentSkyFrame:captured->independentFireflyFrame)=captured->layerFrame;
-                if(!sky && !waterfall && capture->Image())independentFireflyCopies++;
+                (waterfall?captured->independentWaterfallFrame:captured->independentFireflyFrame)=captured->layerFrame;
+                if(!waterfall && capture->Image())independentFireflyCopies++;
                 pinned.reset();
             }
             return;
@@ -862,14 +858,14 @@ static void __stdcall BeforeUI(int event)
             CaptureContribution(*shared,0,event==4);
             return;
         }
-        if(event==9 || event==10 || event==20)
+        if(event==9 || event==10 || event==20 || event==28 || event==29)
         {
             CaptureContribution(*shared,1,event==10);
             if(event!=10 && IndependentMode())
             {
                 if(!shared->independentSources)shared->independentSources=std::make_unique<IndependentSourceCapture>(shared->source.Get(),shared->context.Get(),shared->desc.Width,shared->desc.Height);
                 shared->independentSources->CaptureOpaque(shared->contributions[1].before.Get(),
-                    event==9 && shared->independentLocalClassesValid?shared->independentLocalClasses.Get():nullptr);
+                    (event==9||event==28) && shared->independentLocalClassesValid?shared->independentLocalClasses.Get():nullptr,event==28||event==29);
             }
             return;
         }
@@ -925,13 +921,11 @@ static void __stdcall BeforeUI(int event)
             if(!shared->independentSources)shared->independentSources=std::make_unique<IndependentSourceCapture>(shared->source.Get(),shared->context.Get(),td.Width,td.Height);
             ID3D11Texture2D *fire=shared->independentFirefly && shared->independentFireflyFrame==shared->layerFrame
                 ?shared->independentFirefly->Image():nullptr;
-            ID3D11Texture2D *sky=shared->independentSky && shared->independentSkyFrame==shared->layerFrame
-                ?shared->independentSky->Image():nullptr;
             ID3D11Texture2D *waterfall=shared->independentWaterfall && shared->independentWaterfallFrame==shared->layerFrame
                 ?shared->independentWaterfall->Image():nullptr;
             bool atmosphere=atmosphereProbe.Tone()==2;
             int packTiming=shared->layerTiming.Begin(shared->source.Get(),shared->context.Get(),2,shared->cleanSerial+1);
-            shared->cleanHasLayers=shared->independentSources->Capture(shared->contributions[1].before.Get(),shared->cleanSilhouette.Get(),cloudInput.Get(),fire,sky,
+            shared->cleanHasLayers=shared->independentSources->Capture(shared->contributions[1].before.Get(),shared->cleanSilhouette.Get(),cloudInput.Get(),fire,nullptr,
                 atmosphere?atmosphereProbe.Color():nullptr,atmosphere?atmosphereProbe.Extinction():nullptr,atmosphere?atmosphereProbe.Depth():nullptr,waterfall);
             shared->layerTiming.End(shared->context.Get(),packTiming);
             shared->cleanCloudFade=independentCloudFade.load();

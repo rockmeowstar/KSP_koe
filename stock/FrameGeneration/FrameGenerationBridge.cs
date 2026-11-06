@@ -51,7 +51,7 @@ namespace KoeFrameGeneration
         readonly VesselSilhouette silhouette = new VesselSilhouette();
         readonly EffectLayers effectLayers = new EffectLayers();
         readonly IndependentEffectPass independentEffects = new IndependentEffectPass();
-        readonly IndependentSkyPass independentSky=new IndependentSkyPass();
+        readonly ScattererCameraLayers scattererCameras=new ScattererCameraLayers();
         readonly IndependentWaterfallPass independentWaterfall=new IndependentWaterfallPass();
         readonly bool independentLayers = Environment.GetEnvironmentVariable("KOE_INDEPENDENT_LAYERS")=="1";
         readonly EveCloudLayer eveCloudLayer = new EveCloudLayer();
@@ -274,7 +274,7 @@ namespace KoeFrameGeneration
             long begin = System.Diagnostics.Stopwatch.GetTimestamp();
             try { eveCloudLayer.Observe(camera); oceanLayer.Observe(camera); SendCloudLayer();
                 if(independentLayers && CanFrameGenerationIndependentCapture()!=0)
-                {independentSky.Prepare(camera,renderEvent);independentWaterfall.Prepare(camera,renderEvent);}
+                    independentWaterfall.Prepare(camera,renderEvent);
                 if(SendAtmosphereProbe!=null)atmosphereProbe.Observe(camera,SendAtmosphereProbe); }
             finally { layerCpuMs += 1000.0 * (System.Diagnostics.Stopwatch.GetTimestamp()-begin) / System.Diagnostics.Stopwatch.Frequency; }
         }
@@ -395,7 +395,9 @@ namespace KoeFrameGeneration
             if(alphaSource)
             {
                 frameStart.SetRenderTarget(BuiltinRenderTextureType.CameraTarget);
-                frameStart.IssuePluginEvent(renderEvent,independentLayers&&!localStencil?20:9);
+                int captureEvent=independentLayers&&!localStencil?20:9;
+                if(independentLayers && scattererCameras.OwnSky(camera))captureEvent=localStencil?28:29;
+                frameStart.IssuePluginEvent(renderEvent,captureEvent);
                 layerEnds[camera].IssuePluginEvent(renderEvent,10);
             }
             if(localStencil)
@@ -444,7 +446,6 @@ namespace KoeFrameGeneration
             ClearStencilCameras();
             effectLayers.Dispose();
             independentEffects.Dispose();
-            independentSky.Dispose();
             independentWaterfall.Dispose();
             eveCloudLayer.Clear();
             atmosphereProbe.Clear();

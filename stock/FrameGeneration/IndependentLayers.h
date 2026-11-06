@@ -33,8 +33,18 @@ class IndependentLayers
     Ptr<ID3D11Device> device;
     Ptr<ID3D11DeviceContext> context;
     Ptr<ID3D11Texture2D> history[2],vectors;
+    Ptr<ID3D11Texture2D> filteredVectors;
+    Ptr<ID3D11ShaderResourceView> filteredVectorView;
+    Ptr<ID3D11UnorderedAccessView> filteredVectorTarget;
+    Ptr<ID3D11ComputeShader> convertVectors;
+    Ptr<ID3D11SamplerState> vectorSampler;
     Ptr<ID3D11ShaderResourceView> historyView[2],vectorView;
     Ptr<ID3D11ComputeShader> shader;
+    Ptr<ID3D11ComputeShader> validate;
+    Ptr<ID3D11Texture2D> validity;
+    Ptr<ID3D11ShaderResourceView> validityView;
+    Ptr<ID3D11UnorderedAccessView> validityTarget;
+    std::uint64_t validatedSerial=~std::uint64_t(0);
     Ptr<ID3D11ComputeShader> presenceShader;
     Ptr<ID3D11Buffer> presence;
     Ptr<ID3D11UnorderedAccessView> presenceTarget;
@@ -121,6 +131,14 @@ class IndependentLayers
         context->PSSetConstantBuffers(0,1,&cb);context->PSSetShaderResources(0,1,&source);context->Draw(3,0);
         source=nullptr;context->PSSetShaderResources(0,1,&source);context->OMSetRenderTargets(0,nullptr,nullptr);
     }
+    void ConvertVectors()
+    {
+        auto *view=vectorView.Get();auto *target=filteredVectorTarget.Get();
+        context->CSSetShader(convertVectors.Get(),nullptr,0);context->CSSetShaderResources(0,1,&view);
+        context->CSSetUnorderedAccessViews(0,1,&target,nullptr);
+        context->Dispatch((gridWidth+7)/8,(gridHeight+7)/8,LayerReconstruction::Count*2);
+        view=nullptr;target=nullptr;context->CSSetShaderResources(0,1,&view);context->CSSetUnorderedAccessViews(0,1,&target,nullptr);
+    }
 public:
     IndependentLayers(ID3D11Device *gpu,unsigned w,unsigned h):device(gpu),width(w),height(h),
         scale((std::min)(w,h)>=128?4u:2u),flowWidth((w+scale-1)/scale),flowHeight((h+scale-1)/scale),
@@ -129,6 +147,12 @@ public:
         gpu->GetImmediateContext(&context);
         auto code=Compile(LayerReconstruction::Shader,"cs_5_0");
         Check(device->CreateComputeShader(code->GetBufferPointer(),code->GetBufferSize(),nullptr,&shader));
+        std::string validationSource=std::string("#define KOE_LAYER_VALIDATE\n")+LayerReconstruction::Shader;
+        code=Compile(validationSource.c_str(),"cs_5_0");Check(device->CreateComputeShader(code->GetBufferPointer(),code->GetBufferSize(),nullptr,&validate));
+        D3D11_TEXTURE2D_DESC mask{};mask.Width=w;mask.Height=h;mask.ArraySize=mask.MipLevels=mask.SampleDesc.Count=1;
+        mask.Format=DXGI_FORMAT_R8_UINT;mask.BindFlags=D3D11_BIND_SHADER_RESOURCE|D3D11_BIND_UNORDERED_ACCESS;
+        Check(device->CreateTexture2D(&mask,nullptr,&validity));Check(device->CreateShaderResourceView(validity.Get(),nullptr,&validityView));
+        Check(device->CreateUnorderedAccessView(validity.Get(),nullptr,&validityTarget));
         const char *vs="float4 main(uint i:SV_VertexID):SV_Position{return float4(i==2?3:-1,i==1?3:-1,0,1);}";
         code=Compile(vs,"vs_5_0");Check(device->CreateVertexShader(code->GetBufferPointer(),code->GetBufferSize(),nullptr,&vertex));
         const char *ps=R"HLSL(
@@ -172,6 +196,24 @@ float4 main(float4 position:SV_Position):SV_Target
         desc.Width=gridWidth;desc.Height=gridHeight;desc.ArraySize=LayerReconstruction::Count*2;
         desc.Format=DXGI_FORMAT_R16G16_SINT;Check(device->CreateTexture2D(&desc,nullptr,&vectors));
         Check(device->CreateShaderResourceView(vectors.Get(),nullptr,&vectorView));
+        desc.Format=DXGI_FORMAT_R32G32_FLOAT;desc.BindFlags=D3D11_BIND_SHADER_RESOURCE|D3D11_BIND_UNORDERED_ACCESS;
+        Check(device->CreateTexture2D(&desc,nullptr,&filteredVectors));
+        Check(device->CreateShaderResourceView(filteredVectors.Get(),nullptr,&filteredVectorView));
+        Check(device->CreateUnorderedAccessView(filteredVectors.Get(),nullptr,&filteredVectorTarget));
+        const char *convert=R"HLSL(
+Texture2DArray<int2> source:register(t0);
+RWTexture2DArray<float2> result:register(u0);
+[numthreads(8,8,1)]void main(uint3 id:SV_DispatchThreadID)
+{
+    uint w,h,s;source.GetDimensions(w,h,s);
+    if(id.x<w && id.y<h && id.z<s)result[id]=float2(source.Load(int4(id,0)));
+}
+)HLSL";
+        code=Compile(convert,"cs_5_0");Check(device->CreateComputeShader(code->GetBufferPointer(),code->GetBufferSize(),nullptr,&convertVectors));
+        D3D11_SAMPLER_DESC sampler{};sampler.Filter=D3D11_FILTER_MIN_MAG_LINEAR_MIP_POINT;
+        sampler.AddressU=sampler.AddressV=sampler.AddressW=D3D11_TEXTURE_ADDRESS_CLAMP;
+        sampler.ComparisonFunc=D3D11_COMPARISON_ALWAYS;sampler.MaxLOD=0;
+        Check(device->CreateSamplerState(&sampler,&vectorSampler));
         const char *presenceSource=R"HLSL(
 Texture2DArray<float4> image:register(t0);
 RWStructuredBuffer<uint> bits:register(u0);
@@ -229,7 +271,7 @@ groupshared uint groupBits;
             ||desc.Format!=DXGI_FORMAT_R16G16B16A16_FLOAT||desc.SampleDesc.Count!=1)
             throw std::invalid_argument("Independent layer descriptor mismatch");
         context->CopyResource(history[index].Get(),layers);valid[index]=true;
-        cloudFilmic=filmic;fade[index]=cloudFade;
+        cloudFilmic=filmic;fade[index]=cloudFade;++inputSerial;
         for(auto &sample:presenceSamples)if(!sample.pending)
         {
             UINT zero[4]{};auto *target=presenceTarget.Get();auto *view=historyView[index].Get();
@@ -238,7 +280,7 @@ groupshared uint groupBits;
             context->CSSetUnorderedAccessViews(0,1,&target,nullptr);context->Dispatch((width+7)/8,(height+7)/8,1);
             view=nullptr;target=nullptr;context->CSSetShaderResources(0,1,&view);context->CSSetUnorderedAccessViews(0,1,&target,nullptr);
             context->CopyResource(sample.readback.Get(),presence.Get());context->End(sample.ready.Get());
-            sample.serial=++inputSerial;sample.pending=true;break;
+            sample.serial=inputSerial;sample.pending=true;break;
         }
     }
     bool Valid(unsigned before,unsigned after)const{return valid[before]&&valid[after];}
@@ -272,9 +314,10 @@ groupshared uint groupBits;
             for(unsigned direction=0;direction<2;direction++)
                 context->CopySubresourceRegion(vectors.Get(),layer*2+direction,0,0,0,value.flow[direction].Get(),0,nullptr);
         }
+        ConvertVectors();
         context->RSSetViewports(viewportCount,viewports);context->RSSetState(previousRaster.Get());
     }
-    void SetTestVectors(ID3D11Texture2D *source){context->CopyResource(vectors.Get(),source);estimatedMask=511;}
+    void SetTestVectors(ID3D11Texture2D *source){context->CopyResource(vectors.Get(),source);ConvertVectors();estimatedMask=511;}
     ID3D11Texture2D *DiagnosticVectors()const{return vectors.Get();}
     unsigned ActiveMask()const{return estimatedMask;}
     void Generate(unsigned before,unsigned after,float phase,ID3D11ShaderResourceView *previous,
@@ -284,14 +327,25 @@ groupshared uint groupBits;
         Parameters settings{width,height,gridWidth,gridHeight,phase,float(scale),unsigned(cloudFilmic),unsigned(diagnostic!=nullptr),
             fade[before],fade[after],unsigned(verify),estimatedMask};
         context->UpdateSubresource(parameters.Get(),0,nullptr,&settings,0,0);auto *cb=parameters.Get();
-        ID3D11ShaderResourceView *views[]={historyView[before].Get(),historyView[after].Get(),vectorView.Get(),current,previous};
+        ID3D11ShaderResourceView *views[]={historyView[before].Get(),historyView[after].Get(),filteredVectorView.Get(),current,previous,nullptr};
+        if(verify && validatedSerial!=inputSerial)
+        {
+            ID3D11UnorderedAccessView *validationTargets[]={nullptr,nullptr,nullptr,validityTarget.Get()};
+            context->CSSetShader(validate.Get(),nullptr,0);context->CSSetConstantBuffers(0,1,&cb);
+            context->CSSetShaderResources(0,6,views);context->CSSetUnorderedAccessViews(0,4,validationTargets,nullptr);
+            context->Dispatch((width+7)/8,(height+7)/8,1);
+            for(auto &target:validationTargets)target=nullptr;
+            context->CSSetUnorderedAccessViews(0,4,validationTargets,nullptr);validatedSerial=inputSerial;
+        }
+        views[5]=validityView.Get();
         ID3D11UnorderedAccessView *targets[]={output,counts,diagnostic};
         UINT zeros[4]{};context->ClearUnorderedAccessViewUint(counts,zeros);
         context->CSSetShader(shader.Get(),nullptr,0);context->CSSetConstantBuffers(0,1,&cb);
-        context->CSSetShaderResources(0,5,views);context->CSSetUnorderedAccessViews(0,3,targets,nullptr);
+        auto *sampler=vectorSampler.Get();context->CSSetSamplers(0,1,&sampler);
+        context->CSSetShaderResources(0,6,views);context->CSSetUnorderedAccessViews(0,3,targets,nullptr);
         context->Dispatch((width+7)/8,(height+7)/8,1);
         for(auto &view:views)view=nullptr;for(auto &target:targets)target=nullptr;
-        context->CSSetShaderResources(0,5,views);context->CSSetUnorderedAccessViews(0,3,targets,nullptr);
+        context->CSSetShaderResources(0,6,views);context->CSSetUnorderedAccessViews(0,3,targets,nullptr);
         context->CSSetShader(nullptr,nullptr,0);
     }
 };

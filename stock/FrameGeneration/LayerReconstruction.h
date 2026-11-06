@@ -9,12 +9,15 @@ inline constexpr unsigned PackedSlices = 6;
 inline constexpr const char *Shader = R"HLSL(
 Texture2DArray<float4> beforeLayers:register(t0);
 Texture2DArray<float4> afterLayers:register(t1);
-Texture2DArray<int2> vectors:register(t2);
+Texture2DArray<float2> vectors:register(t2);
+SamplerState vectorSampler:register(s0);
 Texture2D<float4> currentWorld:register(t3);
 Texture2D<float4> previousWorld:register(t4);
+Texture2D<uint> validity:register(t5);
 RWTexture2D<float4> outputImage:register(u0);
 RWStructuredBuffer<uint> counters:register(u1);
 RWTexture2DArray<float4> reconstructed:register(u2);
+RWTexture2D<uint> validityOutput:register(u3);
 cbuffer Parameters:register(b0)
 {
     uint2 size;
@@ -73,9 +76,8 @@ float3 sampleTransmission(float2 p,bool after)
 float2 flowAt(float2 p,uint layer,bool backward)
 {
     float2 q=clamp((p/flowScale+.5)/4-.5,0,float2(grid)-1);
-    int2 a=int2(floor(q)),b=min(a+1,int2(grid)-1);float2 f=frac(q);uint slice=layer*2+(backward?1:0);
-    float2 v=lerp(lerp(float2(vectors.Load(int4(a,slice,0))),float2(vectors.Load(int4(b.x,a.y,slice,0))),f.x),
-                   lerp(float2(vectors.Load(int4(a.x,b.y,slice,0))),float2(vectors.Load(int4(b,slice,0))),f.x),f.y);
+    uint slice=layer*2+(backward?1:0);
+    float2 v=vectors.SampleLevel(vectorSampler,float3((q+.5)/float2(grid),slice),0);
     return v*(flowScale/32.0);
 }
 bool hasData(float4 value,uint layer)
@@ -131,6 +133,31 @@ float3 sourceColor(int2 p,bool after)
     float3 transmission=(after?afterLayers.Load(int4(p,5,0)):beforeLayers.Load(int4(p,5,0))).rgb;
     return atmosphere.a>.01?film(inverseFilm(base)*transmission+atmosphere.rgb):base;
 }
+bool protectedAt(int2 pixel,float3 color)
+{
+    bool result=protectedColor(color);
+    [unroll]for(int axis=0;axis<4;axis++)
+    {
+        int2 delta=axis==0?int2(1,0):axis==1?int2(-1,0):axis==2?int2(0,1):int2(0,-1);
+        result=result||protectedColor(currentWorld.Load(int3(clamp(pixel+delta,0,int2(size)-1),0)).rgb);
+    }
+    return result;
+}
+#ifdef KOE_LAYER_VALIDATE
+[numthreads(8,8,1)]void main(uint3 id:SV_DispatchThreadID)
+{
+    if(any(id.xy>=size))return;
+    int2 pixel=int2(id.xy);float3 real=currentWorld.Load(int3(pixel,0)).rgb;
+    uint flags=protectedAt(pixel,real)?2:0;
+    if(flags==0)
+    {
+        float3 prev=previousWorld.Load(int3(pixel,0)).rgb;
+        if(maximum(abs(saturate(sourceColor(pixel,false))-prev))<=1.5/255
+            && maximum(abs(saturate(sourceColor(pixel,true))-real))<=1.5/255)flags=1;
+    }
+    validityOutput[id.xy]=flags;
+}
+#else
 groupshared uint totals[6];
 [numthreads(8,8,1)]void main(uint3 id:SV_DispatchThreadID,uint lane:SV_GroupIndex)
 {
@@ -141,19 +168,9 @@ groupshared uint totals[6];
     int2 pixel=int2(id.xy);float4 real=currentWorld.Load(int3(pixel,0));
     InterlockedAdd(totals[3],1);
     InterlockedAdd(totals[0],1);
-    bool exact=true;
-    if(verifyComposition!=0)
-    {
-        float3 prev=previousWorld.Load(int3(pixel,0)).rgb;
-        exact=maximum(abs(saturate(sourceColor(pixel,false))-prev))<=1.5/255
-            && maximum(abs(saturate(sourceColor(pixel,true))-real.rgb))<=1.5/255;
-    }
-    bool protectedPixel=protectedColor(real.rgb);
-    [unroll]for(int axis=0;axis<4;axis++)
-    {
-        int2 delta=axis==0?int2(1,0):axis==1?int2(-1,0):axis==2?int2(0,1):int2(0,-1);
-        protectedPixel=protectedPixel||protectedColor(currentWorld.Load(int3(clamp(pixel+delta,0,int2(size)-1),0)).rgb);
-    }
+    uint flags=verifyComposition!=0?validity.Load(int3(pixel,0)):1;
+    bool exact=flags==1;
+    bool protectedPixel=verifyComposition!=0?flags==2:protectedAt(pixel,real.rgb);
     float4 result=real;
     if((exact && !protectedPixel)||writeLayers!=0)
     {
@@ -183,12 +200,13 @@ groupshared uint totals[6];
         if(exact && anyValid && !protectedPixel && all(isfinite(color)))
         {result.rgb=saturate(color);InterlockedAdd(totals[4],1);}
     }
-    else if(!exact)InterlockedAdd(totals[1],1);
+    else if(!exact && !protectedPixel)InterlockedAdd(totals[1],1);
     if(any(round(result.rgb*255)!=round(real.rgb*255)))InterlockedAdd(totals[5],1);
     outputImage[id.xy]=result;
     }
     GroupMemoryBarrierWithGroupSync();
     if(lane<6)InterlockedAdd(counters[lane],totals[lane]);
 }
+#endif
 )HLSL";
 }

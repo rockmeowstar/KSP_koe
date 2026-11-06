@@ -89,7 +89,7 @@ float3 film(float3 x)
         if(value.a<.99)base=value.rgb;
     }
     uint finalKind=uint(round(classes.Load(int3(p,0)).r*255));
-    if(finalKind==3 || finalKind==4)
+    if(finalKind>=1 && finalKind<=5)
         layers[uint3(id.xy,1)]=float4(finalKind/255.0,0,0,1);
     float4 cloud=0;
     if(hasClouds!=0)
@@ -134,14 +134,14 @@ float3 film(float3 x)
 Texture2D<float4> colorImage:register(t0);
 Texture2D<float4> localClasses:register(t1);
 RWTexture2DArray<float4> layers:register(u0);
-cbuffer Settings:register(b0){uint2 size;uint reset;uint hasClasses;}
+cbuffer Settings:register(b0){uint2 size;uint reset;uint flags;}
 [numthreads(8,8,1)]void main(uint3 id:SV_DispatchThreadID)
 {
     if(any(id.xy>=size))return;
     int2 pixel=int2(id.x,size.y-1-id.y);
-    float4 label=hasClasses!=0?localClasses.Load(int3(pixel,0)):0;
+    float4 label=(flags&1)!=0?localClasses.Load(int3(pixel,0)):0;
     uint kind=uint(round(label.r*255));
-    if(reset!=0 || (kind>=1 && kind<=5))
+    if(reset!=0 || (kind>=1 && kind<=5) || ((flags&2)!=0 && kind==0))
     {
         layers[uint3(id.xy,0)]=float4(colorImage.Load(int3(pixel,0)).rgb,1);
         layers[uint3(id.xy,1)]=float4(kind/255.0,0,0,1);
@@ -179,14 +179,14 @@ cbuffer Settings:register(b0){uint2 size;uint reset;uint hasClasses;}
     }
     ID3D11Texture2D *Image()const{return layers.Get();}
     void BeginFrame(){opaqueReady=false;}
-    void CaptureOpaque(ID3D11Texture2D *color,ID3D11Texture2D *localClasses)
+    void CaptureOpaque(ID3D11Texture2D *color,ID3D11Texture2D *localClasses,bool ownSky=false)
     {
         if(!color)return;
         if(views.size()>12)views.clear();
         Ptr<ID3DDeviceContextState> previous;context->SwapDeviceContextState(state.Get(),&previous);
         try
         {
-            unsigned settings[]={width,height,unsigned(!opaqueReady),unsigned(localClasses!=nullptr)};
+            unsigned settings[]={width,height,unsigned(!opaqueReady),unsigned(localClasses!=nullptr)|(ownSky?2u:0u)};
             context->UpdateSubresource(parameters.Get(),0,nullptr,settings,0,0);auto *cb=parameters.Get();auto *uav=opaqueTarget.Get();
             ID3D11ShaderResourceView *inputs[]={GetView(color),GetView(localClasses)};
             context->CSSetShader(opaqueShader.Get(),nullptr,0);context->CSSetConstantBuffers(0,1,&cb);
