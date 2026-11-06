@@ -49,9 +49,9 @@ namespace CloudLoopFix
                 return;
             const string id = "local.kerbaloverengineering.eve-texture-pipeline";
             var assembly = AppDomain.CurrentDomain.GetAssemblies().Single(a => a.GetName().Name == "Utils");
-            if (assembly.ManifestModule.ModuleVersionId != new Guid("752c32c2-9c32-40be-bad9-8a27f80a0a26"))
-                throw new NotSupportedException("The EVE Utils assembly does not match the supported texture-loader build.");
-            var target = AccessTools.DeclaredMethod(assembly.GetType("Utils.TextureConverter", true), "DDSToTexture");
+            var target = KerbalOverEngineering.Options.ManagedContract.EveDdsLoader(assembly);
+            if (target == null)
+                throw new NotSupportedException("EVE DDS loader signature changed");
             var harmony = new Harmony(id);
             try
             {

@@ -1,0 +1,5 @@
+{
+    "sourceSha256":  "71c5b4eaeb51920507c1e2490dca811f49f745318301f2ed71ffa4b86869677f",
+    "binarySha256":  "8b40a275d034310f775721ae12dd6cbde11dab03d4ca733937df2f1b051bf8d6",
+    "compiler":  "rustc 1.99.1 (58cf8f9c3 2026-10-13)"
+}

@@ -6,7 +6,6 @@ using System.Linq;
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Runtime.CompilerServices;
-using System.Security.Cryptography;
 using System.Threading;
 using HarmonyLib;
 using UnityEngine;
@@ -16,7 +15,6 @@ namespace EveCurveBakeFix
     public static class EveCurveKernel
     {
         const string Id = "local.kerbaloverengineering.eve-curve-bake";
-        const string BodyHash = "d05372025b97613633b881c34c3155cd86c3f1d3cc600b5f68d8156fe14585df";
         static MethodInfo target, clone;
         static FieldInfo resolution, input, output;
         static int mode, rejected;
@@ -52,17 +50,13 @@ namespace EveCurveBakeFix
                 throw new InvalidOperationException("Curve experiment already initialized");
             if (selectedMode < 1 || selectedMode > 3)
                 throw new ArgumentOutOfRangeException("selectedMode");
-            if (assembly.ManifestModule.ModuleVersionId != new Guid("8150e218-893c-4b2c-a852-b674a3006cfd"))
-                throw new NotSupportedException("The EVE assembly does not match the supported curve-baker build.");
             var volume = assembly.GetType("Atmosphere.CloudsRaymarchedVolume", true);
-            var closure = volume.GetNestedType("<>c__DisplayClass154_0", BindingFlags.NonPublic);
+            var closure = volume.GetNestedTypes(BindingFlags.NonPublic | BindingFlags.Public)
+                .Single(t => AccessTools.DeclaredMethod(t, "<BakeCurvesTexture>b__0") != null);
             target = AccessTools.DeclaredMethod(closure, "<BakeCurvesTexture>b__0");
+            KerbalOverEngineering.Options.ManagedContract.Require(target, "6c97e7cb1c80114e55a6c3fc6ea301a12964d6172872e17c8cfd0c758bf9c7f8");
             var body = target.GetMethodBody();
-            string hash;
-            using (var sha = SHA256.Create())
-                hash = BitConverter.ToString(sha.ComputeHash(body.GetILAsByteArray())).Replace("-", "").ToLowerInvariant();
-            if (hash != BodyHash
-                || body.LocalVariables.Count != 9
+            if (body.LocalVariables.Count != 9
                 || body.LocalVariables[8].LocalType != typeof(float)
                 || body.ExceptionHandlingClauses.Count != 0)
                 throw new NotSupportedException("Cannot find the interpolation calls expected in EVE's curve-column baker.");

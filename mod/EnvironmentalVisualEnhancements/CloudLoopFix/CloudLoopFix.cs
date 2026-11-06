@@ -4,7 +4,6 @@ using System.Linq;
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Runtime.CompilerServices;
-using System.Security.Cryptography;
 using HarmonyLib;
 using UnityEngine;
 
@@ -15,8 +14,6 @@ namespace CloudLoopFix
     public static class Patch
     {
         const string Id = "local.kerbaloverengineering.cloud-loops";
-        public const string AtmosphereSha = "fab4af80399bddc035d7d048fa6fa0d2685de3e6a0b2f275f7800e126d2f6d41";
-        static readonly Guid Supported = new Guid("8150e218-893c-4b2c-a852-b674a3006cfd");
         static Harmony harmony;
         static MethodInfo intervals, commands;
         public static void Apply()
@@ -31,25 +28,20 @@ namespace CloudLoopFix
             Assembly assembly = AppDomain.CurrentDomain.GetAssemblies().SingleOrDefault(a => a.GetName().Name == "Atmosphere");
             if (assembly == null)
                 return;
-            if (assembly.ManifestModule.ModuleVersionId != Supported)
-                throw new NotSupportedException("Unsupported Atmosphere assembly.");
-            // AI-generated comment: Mono/KSP may load an assembly from bytes (empty Location); the installer checks the full file hash.
-            if (!string.IsNullOrEmpty(assembly.Location))
-                using (var sha = SHA256.Create())
-                    if (BitConverter.ToString(sha.ComputeHash(System.IO.File.ReadAllBytes(assembly.Location))).Replace("-", "").ToLowerInvariant() != AtmosphereSha)
-                        throw new NotSupportedException("Atmosphere file identity changed.");
-            Prepare(assembly);
+            Prepare(assembly, geometry, order, material);
             var patcher = new Harmony(Id);
             try
             {
-                Type[] args =
-                {
-                    intervals.GetParameters()[0].ParameterType.GetGenericArguments()[0],
-                    intervals.ReturnType.GetGenericArguments()[0]
-                };
-                Type hooks = typeof(IntervalHooks<, >).MakeGenericType(args);
                 if (geometry)
+                {
+                    Type[] args =
+                    {
+                        intervals.GetParameters()[0].ParameterType.GetGenericArguments()[0],
+                        intervals.ReturnType.GetGenericArguments()[0]
+                    };
+                    Type hooks = typeof(IntervalHooks<, >).MakeGenericType(args);
                     patcher.Patch(intervals, new HarmonyMethod(hooks.GetMethod("Prefix")), new HarmonyMethod(hooks.GetMethod("Postfix")));
+                }
                 if (order)
                     patcher.Patch(commands, null, null, new HarmonyMethod(typeof(Patch), "Transpile"));
                 if (material)
@@ -63,8 +55,7 @@ namespace CloudLoopFix
             }
             catch
             {
-                patcher.Unpatch(intervals, HarmonyPatchType.All, Id);
-                patcher.Unpatch(commands, HarmonyPatchType.All, Id);
+                patcher.UnpatchAll(Id);
                 throw;
             }
 
@@ -74,17 +65,22 @@ namespace CloudLoopFix
             );
         }
 
-        public static void Prepare(Assembly assembly)
+        public static void Prepare(Assembly assembly, bool geometry = true, bool order = true, bool material = true)
         {
             Type renderer = assembly.GetType("Atmosphere.DeferredRaymarchedVolumetricCloudsRenderer", true);
             intervals = AccessTools.DeclaredMethod(renderer, "ResolveLayerOverlapIntervals");
             commands = AccessTools.DeclaredMethod(renderer, "HandleRenderingCommands");
-            if (intervals == null || commands == null)
+            if ((geometry && intervals == null) || ((order || material) && commands == null))
                 throw new NotSupportedException("Cannot find EVE's ResolveLayerOverlapIntervals or HandleRenderingCommands method.");
+            if (geometry)
+                KerbalOverEngineering.Options.ManagedContract.Require(intervals, "8cc3002861ffe46c504d324f311f55f71bb26b9d76996e500d9b0a0b349aee58");
             // AI-generated comment: Validate both sites before installing either patch.
-            new List<CodeInstruction>(Transpile(PatchProcessor.GetOriginalInstructions(commands)));
-            var validation = new DynamicMethod("KOE_ValidateMaterialSetup", typeof(void), Type.EmptyTypes);
-            new List<CodeInstruction>(TranspileMaterialSetup(PatchProcessor.GetOriginalInstructions(commands), validation.GetILGenerator()));
+            if (order) new List<CodeInstruction>(Transpile(PatchProcessor.GetOriginalInstructions(commands)));
+            if (material)
+            {
+                var validation = new DynamicMethod("KOE_ValidateMaterialSetup", typeof(void), Type.EmptyTypes);
+                new List<CodeInstruction>(TranspileMaterialSetup(PatchProcessor.GetOriginalInstructions(commands), validation.GetILGenerator()));
+            }
         }
 
         public static IEnumerable<CodeInstruction> TranspileMaterialSetup(IEnumerable<CodeInstruction> source, ILGenerator generator)

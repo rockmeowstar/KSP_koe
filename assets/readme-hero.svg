@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1280" height="400" viewBox="0 0 1280 400" role="img" aria-labelledby="title desc">
   <title id="title">KerbalOverEngineering</title>
-  <desc id="desc">KSP performance patches. One measured comparison: 8 percent less loading time, 67.7 percent more base flight FPS, 64.4 percent more physics updates and 571 percent more portrait FPS. No generated frames were presented.</desc>
+  <desc id="desc">Historical no-KOE reference from November 5 compared with the November 7 run: 7.5 percent less loading time, 72.8 percent more base flight FPS, 67.9 percent more physics updates and 592.2 percent more portrait FPS. The visible portrait follows base rendered FPS. This is not a new paired benchmark. Frame generation was disabled.</desc>
   <defs>
     <linearGradient id="background" x2="1" y2="1">
       <stop stop-color="#101827"/>
@@ -24,31 +24,31 @@
   <g font-family="Segoe UI,Arial,sans-serif">
     <text x="52" y="89" fill="#9aa8c2" font-size="15" letter-spacing="3">KERBAL SPACE PROGRAM · PERFORMANCE PATCHES</text>
     <text x="49" y="150" fill="#f1f5f9" font-size="52" font-weight="700">KerbalOverEngineering</text>
-    <text x="53" y="187" fill="#bac6da" font-size="19">55 feature flags. 27 modules. One configurable package.</text>
+    <text x="53" y="187" fill="#bac6da" font-size="19">56 feature flags. 28 modules. One configurable package.</text>
     <g transform="translate(52 226)">
       <rect width="276" height="110" rx="14" fill="#172437" stroke="#2a3a52"/>
       <text x="20" y="31" fill="#a9bad2" font-size="14">LOADING TIME</text>
-      <text x="20" y="76" fill="#5eead4" font-size="36" font-weight="700">−8.0%</text>
-      <text x="153" y="74" fill="#b9c5d8" font-size="14">74.49 → 68.55 s</text>
+      <text x="20" y="76" fill="#5eead4" font-size="36" font-weight="700">−7.5%</text>
+      <text x="153" y="74" fill="#b9c5d8" font-size="14">74.49 → 68.89 s</text>
     </g>
     <g transform="translate(352 226)">
       <rect width="276" height="110" rx="14" fill="#1b2038" stroke="#353452"/>
       <text x="20" y="31" fill="#a9bad2" font-size="14">BASE FLIGHT FPS</text>
-      <text x="20" y="76" fill="#a5b4fc" font-size="36" font-weight="700">+67.7%</text>
-      <text x="20" y="98" fill="#b9c5d8" font-size="12">12.38 → 20.76 FPS</text>
+      <text x="20" y="76" fill="#a5b4fc" font-size="36" font-weight="700">+72.8%</text>
+      <text x="20" y="98" fill="#b9c5d8" font-size="12">12.38 → 21.39 FPS</text>
     </g>
     <g transform="translate(652 226)">
       <rect width="276" height="110" rx="14" fill="#211d35" stroke="#403251"/>
       <text x="20" y="31" fill="#a9bad2" font-size="14">FLIGHT PHYSICS RATE</text>
-      <text x="20" y="76" fill="#c4b5fd" font-size="36" font-weight="700">+64.4%</text>
-      <text x="20" y="98" fill="#b9c5d8" font-size="12">24.77 → 40.72 updates/s</text>
+      <text x="20" y="76" fill="#c4b5fd" font-size="36" font-weight="700">+67.9%</text>
+      <text x="20" y="98" fill="#b9c5d8" font-size="12">24.77 → 41.59 updates/s</text>
     </g>
     <g transform="translate(952 226)">
       <rect width="276" height="110" rx="14" fill="#25212d" stroke="#47394b"/>
       <text x="20" y="31" fill="#a9bad2" font-size="14">FLIGHT PORTRAIT FPS</text>
-      <text x="20" y="76" fill="#f9c97e" font-size="36" font-weight="700">+571%</text>
-      <text x="20" y="98" fill="#b9c5d8" font-size="12">3.09 → 20.76 FPS</text>
+      <text x="20" y="76" fill="#f9c97e" font-size="36" font-weight="700">+592.2%</text>
+      <text x="20" y="98" fill="#b9c5d8" font-size="12">3.09 → 21.39 FPS · follows base FPS</text>
     </g>
-    <text x="53" y="372" fill="#8b9bb5" font-size="13">One paired run · KSPCommunityFixes baseline · RTX 4060 · 0 generated frames presented · details below</text>
+    <text x="53" y="372" fill="#8b9bb5" font-size="13">Historical no-KOE reference, Nov 5 → current run, Nov 7 · RTX 4060 · Frame generation off · details below</text>
   </g>
 </svg>

@@ -1,6 +1,7 @@
 // AI-generated comment: Exact-source DX11 light batching. No Unity lights or light parameters change.
 #define WIN32_LEAN_AND_MEAN
 #include "InstancedLightBatch.h"
+#include "BufferValidity.h"
 #include <windows.h>
 #include <d3d11_3.h>
 #include <bcrypt.h>
@@ -96,14 +97,71 @@ static std::mutex shaderMutex;
 struct BufferShadow
 {
     ComPtr<ID3D11Buffer> resource;
-    std::vector<unsigned char> bytes, valid;
-    void *mapped = nullptr;
-    bool wanted = false, ignored = false;
+    std::vector<unsigned char> bytes;
+    BufferValidity valid;
+    std::atomic<void *> mapped{nullptr};
+    std::atomic<bool> wanted{false};
 };
 static std::mutex bufferMutex;
+static bool fastBufferValidity = true;
+static uint64_t validityCounters[4]{};
 static std::unordered_map<ID3D11Resource *, BufferShadow> shadows;
 static size_t shadowBytes = 0;
-static std::atomic<bool> selectiveMirroring{false};
+static std::atomic<bool> captureEnabled{false};
+struct MappedShadow
+{
+    Context *context = nullptr;
+    ID3D11Resource *resource = nullptr;
+    BufferShadow *shadow = nullptr;
+};
+static thread_local MappedShadow lastMapped;
+struct CaptureLookup
+{
+    struct Entry { ID3D11Resource *resource = nullptr; BufferShadow *shadow = nullptr; };
+    ComPtr<Context> context;
+    std::array<Entry, 64> entries{};
+};
+static thread_local CaptureLookup captureLookup;
+#ifdef KOE_CAPTURE_LOOKUP_AUDIT
+static std::atomic<bool> fastCaptureLookup{true};
+static std::atomic<uint64_t> captureLookupCounters[4]{};
+#endif
+static bool UseCaptureLookup()
+{
+#ifdef KOE_CAPTURE_LOOKUP_AUDIT
+    return fastCaptureLookup.load(std::memory_order_relaxed);
+#else
+    return true;
+#endif
+}
+static void CountCaptureLookup(unsigned index)
+{
+#ifdef KOE_CAPTURE_LOOKUP_AUDIT
+    captureLookupCounters[index].fetch_add(1, std::memory_order_relaxed);
+#else
+    (void)index;
+#endif
+}
+#ifdef KOE_MAP_CAPTURE_AUDIT
+static std::atomic<bool> fastMapCapture{true};
+static std::atomic<uint64_t> mapCaptureCounters[4]{};
+#endif
+static bool UseFastMapCapture()
+{
+#ifdef KOE_MAP_CAPTURE_AUDIT
+    return fastMapCapture.load(std::memory_order_relaxed);
+#else
+    return true;
+#endif
+}
+static void CountMapCapture(unsigned index)
+{
+#ifdef KOE_MAP_CAPTURE_AUDIT
+    mapCaptureCounters[index].fetch_add(1, std::memory_order_relaxed);
+#else
+    (void)index;
+#endif
+}
 static constexpr unsigned sizes[] = {3, 6, 4, 21, 6, 8, 22}, starts[] = {0, 3, 9, 13, 34, 40, 48};
 struct RuntimeContext
 {
@@ -202,16 +260,17 @@ static void BeforeConstantBinding(Context *c)
 }
 static void InvalidateBuffer(ID3D11Resource *resource)
 {
+    if (!captureEnabled.load(std::memory_order_acquire)) return;
     std::lock_guard<std::mutex> lock(bufferMutex);
     auto it = shadows.find(resource);
     if (it != shadows.end())
-        std::fill(it->second.valid.begin(), it->second.valid.end(), 0);
+        it->second.valid.Clear(fastBufferValidity);
 }
 static void InvalidateAllBuffers()
 {
     std::lock_guard<std::mutex> lock(bufferMutex);
     for (auto &item : shadows)
-        std::fill(item.second.valid.begin(), item.second.valid.end(), 0);
+        item.second.valid.Clear(fastBufferValidity);
 }
 struct HookSpec
 {
@@ -374,36 +433,68 @@ static BufferShadow *Shadow(ID3D11Resource *resource)
     auto &item = shadows[resource];
     item.resource = buffer;
     item.bytes.resize(desc.ByteWidth);
-    item.valid.resize(desc.ByteWidth);
+    item.valid.Resize(desc.ByteWidth);
     shadowBytes += desc.ByteWidth;
     return &item;
 }
 static bool IsConstant(Context *c, ID3D11Resource *resource)
 {
-    if (mode.load() == 0 || c->GetType() != D3D11_DEVICE_CONTEXT_IMMEDIATE)
+    if (!captureEnabled.load(std::memory_order_acquire) || mode.load() == 0 || c->GetType() != D3D11_DEVICE_CONTEXT_IMMEDIATE)
         return false;
     std::lock_guard<std::mutex> lock(bufferMutex);
-    if (selectiveMirroring.load())
+    auto it = shadows.find(resource);
+    return it != shadows.end() && it->second.wanted.load(std::memory_order_acquire);
+}
+static BufferShadow *CaptureConstant(Context *c, ID3D11Resource *resource)
+{
+    if (!captureEnabled.load(std::memory_order_acquire) || mode.load() == 0 || c->GetType() != D3D11_DEVICE_CONTEXT_IMMEDIATE)
+        return nullptr;
+    std::lock_guard<std::mutex> lock(bufferMutex);
+    auto it = shadows.find(resource);
+    return it != shadows.end() && it->second.wanted.load(std::memory_order_acquire) ? &it->second : nullptr;
+}
+static BufferShadow *FindCaptureConstant(Context *c, ID3D11Resource *resource)
+{
+    if (!captureEnabled.load(std::memory_order_acquire)) return nullptr;
+    CountCaptureLookup(0);
+    if (!UseCaptureLookup() || mode.load() == 0)
     {
-        auto it = shadows.find(resource);
-        if (it == shadows.end())
-            return false;
-        if (!it->second.wanted)
-        {
-            if (!it->second.ignored)
-            {
-                std::fill(it->second.valid.begin(), it->second.valid.end(), 0);
-                it->second.ignored = true;
-            }
-            return false;
-        }
+        CountCaptureLookup(2); return CaptureConstant(c, resource);
     }
-    return Shadow(resource) != nullptr;
+    if (captureLookup.context.Get() != c)
+    {
+        if (c->GetType() != D3D11_DEVICE_CONTEXT_IMMEDIATE)
+        {
+            CountCaptureLookup(2); return nullptr;
+        }
+        captureLookup.context = c;
+        captureLookup.entries.fill({}); CountCaptureLookup(3);
+    }
+    const auto key = reinterpret_cast<uintptr_t>(resource) >> 4;
+    auto &entry = captureLookup.entries[(key ^ (key >> 7)) % captureLookup.entries.size()];
+    // AI-generated comment: Only the wanted flag is read without bufferMutex here.
+    // Buffer bytes and validity remain protected; retained shadows cannot disappear.
+    if (entry.resource == resource && entry.shadow && entry.shadow->wanted.load(std::memory_order_acquire))
+    {
+        CountCaptureLookup(1); return entry.shadow;
+    }
+    CountCaptureLookup(2);
+    auto *shadow = CaptureConstant(c, resource);
+    if (shadow) entry = {resource, shadow};
+    return shadow;
 }
 static HRESULT STDMETHODCALLTYPE Hook_Map(Context *c, ID3D11Resource *resource, UINT sub, D3D11_MAP type, UINT flags,
                                           D3D11_MAPPED_SUBRESOURCE *mapped)
 {
-    bool capture = !inside && resource && sub == 0 && IsConstant(c, resource) &&
+    const bool fast = UseFastMapCapture();
+    BufferShadow *shadow = nullptr;
+    bool eligible = false;
+    if (!inside && resource && sub == 0)
+    {
+        if (fast) { shadow = FindCaptureConstant(c, resource); eligible = shadow != nullptr; }
+        else eligible = IsConstant(c, resource);
+    }
+    bool capture = eligible &&
                    (type == D3D11_MAP_WRITE || type == D3D11_MAP_WRITE_DISCARD ||
                     type == D3D11_MAP_WRITE_NO_OVERWRITE || type == D3D11_MAP_READ_WRITE);
     if (!inside && !capture)
@@ -411,26 +502,50 @@ static HRESULT STDMETHODCALLTYPE Hook_Map(Context *c, ID3D11Resource *resource, 
     HRESULT hr = original_Map(c, resource, sub, type, flags, mapped);
     if (capture && SUCCEEDED(hr) && mapped)
     {
-        std::lock_guard<std::mutex> lock(bufferMutex);
-        auto *shadow = Shadow(resource);
-        if (shadow)
-            shadow->mapped = mapped->pData;
+        CountMapCapture(0);
+        if (fast)
+        {
+            // AI-generated comment: Shadows retain their resources and are never erased.
+            // unordered_map rehash preserves these element addresses.
+            shadow->mapped.store(mapped->pData, std::memory_order_release);
+            lastMapped = {c, resource, shadow};
+            CountMapCapture(1); CountMapCapture(3);
+        }
+        else
+        {
+            std::lock_guard<std::mutex> lock(bufferMutex);
+            shadow = Shadow(resource);
+            if (shadow) shadow->mapped.store(mapped->pData, std::memory_order_release);
+        }
     }
     return hr;
 }
 static void STDMETHODCALLTYPE Hook_Unmap(Context *c, ID3D11Resource *resource, UINT sub)
 {
     bool captured = false;
-    if (!inside && sub == 0)
+    if (!inside && sub == 0 && captureEnabled.load(std::memory_order_acquire))
     {
         std::lock_guard<std::mutex> lock(bufferMutex);
-        auto it = shadows.find(resource);
-        if (it != shadows.end() && it->second.mapped)
+        BufferShadow *shadow = nullptr;
+        if (UseFastMapCapture() && lastMapped.context == c && lastMapped.resource == resource && lastMapped.shadow)
         {
-            auto &item = it->second;
-            std::memcpy(item.bytes.data(), item.mapped, item.bytes.size());
-            std::fill(item.valid.begin(), item.valid.end(), 1);
-            item.mapped = nullptr;
+            shadow = lastMapped.shadow; lastMapped = {};
+            CountMapCapture(2); CountMapCapture(3);
+        }
+        else
+        {
+            auto it = shadows.find(resource);
+            if (it != shadows.end()) shadow = &it->second;
+        }
+        void *data = shadow ? shadow->mapped.load(std::memory_order_acquire) : nullptr;
+        if (data)
+        {
+            auto &item = *shadow;
+            std::memcpy(item.bytes.data(), data, item.bytes.size());
+            item.valid.SetAll(fastBufferValidity);
+            ++validityCounters[0];
+            if (fastBufferValidity) validityCounters[3] += item.bytes.size();
+            item.mapped.store(nullptr, std::memory_order_release);
             mirrored += item.bytes.size();
             captured = true;
         }
@@ -451,13 +566,13 @@ static bool UpdateShadow(Context *c, ID3D11Resource *resource, UINT sub, const D
     size_t lo = box ? box->left : 0, hi = box ? box->right : item->bytes.size();
     if (lo > hi || hi > item->bytes.size())
     {
-        std::fill(item->valid.begin(), item->valid.end(), 0);
+        item->valid.Clear(fastBufferValidity);
         return false;
     }
     if (discard)
-        std::fill(item->valid.begin(), item->valid.end(), 0);
+        item->valid.Clear(fastBufferValidity);
     std::memcpy(item->bytes.data() + lo, data, hi - lo);
-    std::fill(item->valid.begin() + lo, item->valid.begin() + hi, 1);
+    item->valid.SetRange(lo, hi, fastBufferValidity);
     mirrored += hi - lo;
     return true;
 }
@@ -520,23 +635,31 @@ static bool Snapshot(Context *c, InstancedLightBatch::Record &record)
     bool ok = true;
     {
         std::lock_guard<std::mutex> lock(bufferMutex);
-        record = {};
+        // AI-generated comment: Record construction zeros padding once. Every successful snapshot
+        // overwrites all 70 live vectors; failed snapshots are never submitted.
         for (unsigned i = 0; i < 7; ++i)
         {
             auto *item = buffers[i] ? Shadow(buffers[i]) : nullptr;
             size_t offset = size_t(first[i]) * 16, size = size_t(sizes[i]) * 16;
             if (item)
-                item->wanted = true;
+                item->wanted.store(true, std::memory_order_release);
+            if (item && count[i] >= sizes[i] && offset + size <= item->bytes.size())
+            {
+                ++validityCounters[1];
+                if (fastBufferValidity && item->valid.Full())
+                {
+                    ++validityCounters[2]; validityCounters[3] += size;
+                }
+            }
             if (!item || count[i] < sizes[i] || offset + size > item->bytes.size() ||
-                !std::all_of(item->valid.begin() + offset, item->valid.begin() + offset + size,
-                             [](unsigned char v) { return v != 0; }))
+                !item->valid.Contains(offset, offset + size, fastBufferValidity))
             {
                 ok = false;
                 continue;
             }
             std::memcpy(record.vectors + starts[i], item->bytes.data() + offset, size);
         }
-        selectiveMirroring = true;
+        captureEnabled.store(true, std::memory_order_release);
     }
     for (auto *b : buffers)
         if (b)
@@ -907,7 +1030,7 @@ static void STDMETHODCALLTYPE Hook_DrawIndexed(Context *c, UINT count, UINT star
     if (runtime.count && (runtime.pixel != entry || runtime.vertex.Get() != vs.Get() || runtime.indexCount != count ||
                           runtime.startIndex != start || runtime.baseVertex != base || runtime.count == 32))
         Flush();
-    InstancedLightBatch::Record record;
+    auto &record = runtime.records[runtime.count];
     if (!Snapshot(runtime.context.Get(), record))
     {
         Flush();
@@ -963,7 +1086,7 @@ static void STDMETHODCALLTYPE Hook_DrawIndexed(Context *c, UINT count, UINT star
     runtime.indexCount = count;
     runtime.startIndex = start;
     runtime.baseVertex = base;
-    runtime.records[runtime.count++] = record;
+    ++runtime.count;
     queued++;
     pending = runtime.count;
 }
@@ -978,6 +1101,89 @@ extern "C" __declspec(dllexport) void SetInstancedLightsMode(int value)
     if (value > 0 && mode.load() == 0)
         InvalidateAllBuffers();
     mode = value;
+}
+#ifdef KOE_MAP_CAPTURE_AUDIT
+extern "C" __declspec(dllexport) int SetMapCaptureMode(int value)
+{
+    if (value < 0 || value > 1) return -1;
+    fastMapCapture.store(value != 0, std::memory_order_relaxed);
+    return 0;
+}
+extern "C" __declspec(dllexport) int ReadMapCaptureCounters(uint64_t *output, int count)
+{
+    if (!output || count != 4) return -1;
+    for (unsigned i = 0; i < 4; ++i) output[i] = mapCaptureCounters[i].load(std::memory_order_relaxed);
+    return UseFastMapCapture() ? 1 : 0;
+}
+#endif
+#ifdef KOE_CAPTURE_LOOKUP_AUDIT
+extern "C" __declspec(dllexport) int SetCaptureLookupMode(int value)
+{
+    if (value < 0 || value > 1) return -1;
+    fastCaptureLookup.store(value != 0, std::memory_order_relaxed);
+    return 0;
+}
+extern "C" __declspec(dllexport) int ReadCaptureLookupCounters(uint64_t *output, int count)
+{
+    if (!output || count != 4) return -1;
+    for (unsigned i = 0; i < 4; ++i) output[i] = captureLookupCounters[i].load(std::memory_order_relaxed);
+    return UseCaptureLookup() ? 1 : 0;
+}
+#endif
+#if defined(KOE_MAP_CAPTURE_AUDIT) || defined(KOE_CAPTURE_LOOKUP_AUDIT)
+extern "C" __declspec(dllexport) int MarkCaptureBufferWanted(ID3D11Resource *resource)
+{
+    std::lock_guard<std::mutex> lock(bufferMutex);
+    auto *shadow = Shadow(resource);
+    if (!shadow) return -1;
+    shadow->wanted.store(true, std::memory_order_release);
+    captureEnabled.store(true, std::memory_order_release);
+    return 0;
+}
+extern "C" __declspec(dllexport) size_t CapturedShadowCount()
+{
+    std::lock_guard<std::mutex> lock(bufferMutex);
+    return shadows.size();
+}
+extern "C" __declspec(dllexport) int ReadLightSnapshot(ID3D11DeviceContext *context, void *output, size_t size)
+{
+    if (!context || !output || size != sizeof(InstancedLightBatch::Record)) return -1;
+    ComPtr<Context> full;
+    if (FAILED(context->QueryInterface(IID_PPV_ARGS(&full)))) return -1;
+    static thread_local InstancedLightBatch::Record record;
+    if (!Snapshot(full.Get(), record)) return 1;
+    std::memcpy(output, &record, sizeof(record));
+    return 0;
+}
+#endif
+#if defined(KOE_MAP_CAPTURE_AUDIT) || defined(KOE_CAPTURE_LOOKUP_AUDIT)
+extern "C" __declspec(dllexport) int ReadCapturedBuffer(ID3D11Resource *resource, void *output, size_t size)
+{
+    std::lock_guard<std::mutex> lock(bufferMutex);
+    auto it = shadows.find(resource);
+    if (!output || it == shadows.end() || it->second.bytes.size() != size ||
+        it->second.mapped.load() || !it->second.valid.Contains(0, size, fastBufferValidity)) return -1;
+    std::memcpy(output, it->second.bytes.data(), size);
+    return 0;
+}
+#endif
+extern "C" __declspec(dllexport) int SetBufferValidityMode(int value)
+{
+    if (value < 0 || value > 1) return -1;
+    std::lock_guard<std::mutex> lock(bufferMutex);
+    if (fastBufferValidity != (value != 0))
+    {
+        fastBufferValidity = value != 0;
+        for (auto &item : shadows) item.second.valid.Clear(fastBufferValidity);
+    }
+    return 0;
+}
+extern "C" __declspec(dllexport) int ReadBufferValidityCounters(uint64_t *output, int count)
+{
+    if (!output || count != 4) return -1;
+    std::lock_guard<std::mutex> lock(bufferMutex);
+    std::memcpy(output, validityCounters, sizeof(validityCounters));
+    return fastBufferValidity ? 1 : 0;
 }
 extern "C" __declspec(dllexport) void ReadInstancedLights(long long *output, int count)
 {

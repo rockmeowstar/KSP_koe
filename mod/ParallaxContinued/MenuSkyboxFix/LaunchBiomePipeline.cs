@@ -23,17 +23,17 @@ namespace MenuSkyboxFix
             public Task Work;
         }
 
-        static readonly Guid Kopernicus = new Guid("7fd28341-4f5a-4edf-b5f4-35706c820e0e");
         static readonly FieldInfo Raw = AccessTools.Field(typeof(MapSO), "_data");
         static Job prepared;
         static bool closed;
         public static long UploadedMaps, ReplacedPixels, ReplacedRoundCalls, PaletteRoundCalls, PreparedHits, MaxWorkers, Preparations, Fallbacks;
         public static MethodInfo Bind(Assembly assembly, Assembly kopernicus)
         {
-            if (typeof(MapSO).Assembly.ManifestModule.ModuleVersionId != new Guid("4b449f28-41f8-4227-adfa-ad3149c8fdba")
-                || assembly.ManifestModule.ModuleVersionId != new Guid("1ecb998e-ce0b-4bfd-970f-fe0fa2d99def")
-                || kopernicus.ManifestModule.ModuleVersionId != Kopernicus)
-                throw new NotSupportedException("The installed Kopernicus biome provider or Parallax consumer does not match the supported build.");
+            string problem = KerbalOverEngineering.Options.ManagedContract.ParallaxProblem(assembly, "BiomeRgbPreparation");
+            if (problem != null) throw new NotSupportedException(problem);
+            problem = KerbalOverEngineering.Options.ManagedContract.IndexedBiomeProblem(kopernicus == null ? null
+                : kopernicus.GetType("Kopernicus.Components.KopernicusCBAttributeMapSO", false));
+            if (problem != null) throw new NotSupportedException(problem);
             if (Raw == null || Raw.FieldType != typeof(byte[]))
                 throw new NotSupportedException("MapSO data changed");
             return AccessTools.DeclaredMethod(assembly.GetType("Parallax.ScatterManager", true), "DominantBodyLoaded", new[] { typeof(string) });
@@ -71,8 +71,7 @@ namespace MenuSkyboxFix
         {
             return SystemInfo.graphicsDeviceType == GraphicsDeviceType.Direct3D11
                 && map != null
-                && map.GetType().FullName == "Kopernicus.Components.KopernicusCBAttributeMapSO"
-                && map.GetType().Assembly.ManifestModule.ModuleVersionId == Kopernicus;
+                && KerbalOverEngineering.Options.ManagedContract.IndexedBiomeProblem(map.GetType()) == null;
         }
 
         static byte[] Palette(MapSO map)

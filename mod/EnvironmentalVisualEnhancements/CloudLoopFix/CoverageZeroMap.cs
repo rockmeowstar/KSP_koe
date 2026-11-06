@@ -65,34 +65,49 @@ namespace CloudLoopFix
             if (bytes == null || bytes.Length != offset + (long)blocksX * blocksY * 8)
                 throw new InvalidDataException("BC4 payload length");
             var result = new int[checked((blocksX + 1) * (blocksY + 1))];
+            if (CoverageNative.TryBuild(bytes, offset, blocksX, blocksY, result)) return result;
+            BuildManaged(bytes, offset, blocksX, blocksY, result);
+            return result;
+        }
+
+        public static void BuildManaged(byte[] bytes, int offset, int blocksX, int blocksY, int[] result)
+        {
+            if (bytes == null || result == null || blocksX < 1 || blocksY < 1 || blocksX > 8192 || blocksY > 8192
+                || (long)blocksX * blocksY > 4 * 1024 * 1024 || offset < 0
+                || bytes.LongLength - offset != (long)blocksX * blocksY * 8
+                || result.LongLength != ((long)blocksX + 1) * ((long)blocksY + 1))
+                throw new ArgumentException("Invalid coverage buffers");
             int stride = blocksX + 1;
+            Array.Clear(result, 0, stride);
             for (int y = 0; y < blocksY; y++)
+            {
+                int rowSum = 0;
+                result[(y + 1) * stride] = 0;
                 for (int x = 0; x < blocksX; x++)
                 {
                     int i = (y + 1) * stride + x + 1;
-                    result[i] = (Occupied(bytes, offset + (y * blocksX + x) * 8) ? 1 : 0) + result[i - 1] + result[i - stride] - result[i - stride - 1];
+                    rowSum += Occupied(bytes, offset + (y * blocksX + x) * 8) ? 1 : 0;
+                    result[i] = rowSum + result[i - stride];
                 }
-
-            return result;
+            }
         }
 
         public static bool Occupied(byte[] bytes, int offset)
         {
             int a = bytes[offset], b = bytes[offset + 1];
-            ulong indices = 0;
-            for (int i = 0; i < 6; i++)
-                indices |= (ulong)bytes[offset + 2 + i] << (8 * i);
-            if ((a | b) == 0 && indices == 0)
-                return false;
-            for (int i = 0; i < 16; i++)
+            ulong indices = BitConverter.ToUInt64(bytes, offset) >> 16;
+            const ulong lanes = 0x249249249249UL;
+            ulong low = indices & lanes, mid = (indices >> 1) & lanes, high = (indices >> 2) & lanes;
+            ulong zero;
+            if (a > b)
             {
-                int k = (int)(indices & 7);
-                indices >>= 3;
-                if (k == 0 ? a > 0 : k == 1 ? b > 0 : a > b ? a > 0 || b > 0 : k == 6 ? false : k == 7 ? true : a > 0 || b > 0)
-                    return true;
+                if (b > 0) return true;
+                zero = low & ~mid & ~high;
             }
-
-            return false;
+            else if (a > 0) zero = ~low & mid & high;
+            else if (b > 0) zero = (~low & ~mid & ~high) | (~low & mid & high);
+            else return (low & mid & high) != 0;
+            return (zero & lanes) != lanes;
         }
 
         public bool EmptyRectangle(double u0, double u1, double v0, double v1)

@@ -13,6 +13,8 @@ namespace KerbalOverEngineering.InstancedPointLights
         static extern IntPtr LoadLibraryW(string path);
         [DllImport("kernel32", CharSet = CharSet.Ansi, ExactSpelling = true)]
         static extern IntPtr GetProcAddress(IntPtr module, string name);
+        [DllImport("kernel32", CharSet = CharSet.Unicode, ExactSpelling = true)]
+        static extern IntPtr GetModuleHandleW(string name);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl, CharSet = CharSet.Unicode)]
         delegate int Initialize(string folder, int mode);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
@@ -41,6 +43,14 @@ namespace KerbalOverEngineering.InstancedPointLights
 
             try
             {
+                // AI-generated comment: RenderDoc wraps the D3D11 context; keep original
+                // Unity draws instead of installing a second set of native hooks.
+                if (GetModuleHandleW("renderdoc.dll") != IntPtr.Zero)
+                {
+                    Debug.Log("[KOE PointLights] RenderDoc detected; using original Unity lights for capture");
+                    Destroy(gameObject);
+                    return;
+                }
                 string folder = NativeAssets.Extract(Assembly.GetExecutingAssembly());
                 IntPtr module = LoadLibraryW(Path.Combine(folder, "KoeInstancedLights.dll"));
                 if (module == IntPtr.Zero)

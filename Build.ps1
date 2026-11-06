@@ -1,4 +1,4 @@
-param([string]$GamePath = $env:KSP_ROOT,[string]$ReleaseVersion = '0.15.4')
+param([string]$GamePath = $env:KSP_ROOT,[string]$ReleaseVersion = '0.15.5')
 $ErrorActionPreference = 'Stop'
 if ($ReleaseVersion -notmatch '^\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?$') {
     throw 'Invalid release version'
@@ -159,6 +159,7 @@ $modules = @(
     @{
         Path = 'mod/EnvironmentalVisualEnhancements/CloudLoopFix'
         Name = 'CloudLoopFix'
+        Native = 'Coverage'
         Keys = 'EVE.IntervalGeometryMemo,EVE.LayerOrderMemo,EVE.MaterialSetupDedup,EVE.TexturePrefetch,EVE.DdsDirectUpload,EVE.MenuInitScheduler,EVE.CoverageZeroCull'
         Types = "CloudLoopFix.Bootstrap`nCloudLoopFix.EveTextureBootstrap`nCloudLoopFix.MenuCloudScheduler`nCloudLoopFix.CoverageCull"
     },
@@ -200,13 +201,28 @@ $modules = @(
         Keys = 'Rendering.FrameGeneration,Rendering.AdaptiveFrameCadence'
         Types = 'KoeFrameGeneration.Bridge'
         Native = 'Frame'
+    },
+    @{
+        Path = 'stock/ShaderConstantUpdates'
+        Name = 'KoeShaderConstantUpdates'
+        Keys = 'Rendering.ShaderConstantUpdates'
+        Types = 'KerbalOverEngineering.ShaderConstants.Bootstrap'
+        Native = 'Uniforms'
     }
 )
 & "$projectRoot/mod/KSPCommunityFixes/DragReductionFix/Build-Native.ps1"
+& "$projectRoot/stock/ShaderConstantUpdates/Build-Native.ps1"
+$coveragePath = "$projectRoot/mod/EnvironmentalVisualEnhancements/CloudLoopFix"
+$coverageBuild = Get-Content -LiteralPath "$coveragePath/native-assets/KoeCoverageKernel.build.json" -Raw | ConvertFrom-Json
+if ((Get-FileHash -LiteralPath "$coveragePath/CoverageKernel.rs" -Algorithm SHA256).Hash.ToLowerInvariant() -ne $coverageBuild.sourceSha256) {
+    throw 'Coverage Rust source changed; rebuild and validate the native coverage asset'
+}
 $nativeFiles = @{
+    Coverage = ,@('KoeCoverageKernel.dll',$coverageBuild.binarySha256)
+    Uniforms = ,@('KoeUniformKernel.dll',$null)
     Drag = ,@('KoeDragReduction.dll',$null)
     Cloud = @(@('KoeCloudGuard.dll','616f289df2a26ea15dbccdc8c6275ad76ca77805c96ae4661a2216b536cb2ccd'),@('base-guarded.koepatch','544be245373e4a7bc0dfa0df0a8254d4fb170738c61dcfc361afacb30bed9bee'),@('top-guarded.koepatch','97db0080cb6c833a317e746b465618a96ffb30f88ad80f31d28b649e80365131'))
-    Lights = @(@('KSP_x64_Data/Plugins/KoeInstancedLights.dll','78f5ea8fd67cacfa5dd75241a542b5c4a3d71e581eb604333532cce17170193b'),@('GameData/KerbalOverEngineeringExperiments/InstancedLights/light0-ps.shdr','52f0befe1d3fa291a4bebef94502ef14c162f4a3d86cd579a87da9664249bef7'),@('GameData/KerbalOverEngineeringExperiments/InstancedLights/light0-vs.shdr','18f304a7ebaf6499cde707116f7cda855078b930ae59b750ed6b5b8a0c46e496'),@('GameData/KerbalOverEngineeringExperiments/InstancedLights/light1-ps.shdr','bddc54bcdf16b256e3fdc3eabf6ea7675717597293d40bbfc2deb397878e81c8'),@('GameData/KerbalOverEngineeringExperiments/InstancedLights/light1-vs.shdr','18f304a7ebaf6499cde707116f7cda855078b930ae59b750ed6b5b8a0c46e496'))
+    Lights = @(@('KSP_x64_Data/Plugins/KoeInstancedLights.dll','75d232aae1885345270bbc979c642e83b3fe3a4649ad17daf99ac7ae7ca51bf4'),@('GameData/KerbalOverEngineeringExperiments/InstancedLights/light0-ps.shdr','52f0befe1d3fa291a4bebef94502ef14c162f4a3d86cd579a87da9664249bef7'),@('GameData/KerbalOverEngineeringExperiments/InstancedLights/light0-vs.shdr','18f304a7ebaf6499cde707116f7cda855078b930ae59b750ed6b5b8a0c46e496'),@('GameData/KerbalOverEngineeringExperiments/InstancedLights/light1-ps.shdr','bddc54bcdf16b256e3fdc3eabf6ea7675717597293d40bbfc2deb397878e81c8'),@('GameData/KerbalOverEngineeringExperiments/InstancedLights/light1-vs.shdr','18f304a7ebaf6499cde707116f7cda855078b930ae59b750ed6b5b8a0c46e496'))
     Frame = ,@('KSP_x64_Data/Plugins/KoeFrameGeneration.dll','732fbe935aaef00f1fa4debcec73ea37b45b74921402c7d546c3e520f28155af')
 }
 foreach ($module in $modules) {

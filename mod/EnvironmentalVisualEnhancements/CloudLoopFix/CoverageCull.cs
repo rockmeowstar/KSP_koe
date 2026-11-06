@@ -83,8 +83,6 @@ namespace CloudLoopFix
             try
             {
                 var assembly = AppDomain.CurrentDomain.GetAssemblies().Single(a => a.GetName().Name == "Atmosphere");
-                if (assembly.ManifestModule.ModuleVersionId != new Guid("8150e218-893c-4b2c-a852-b674a3006cfd"))
-                    throw new NotSupportedException("The EVE assembly does not match the build this patch supports.");
                 var volume = assembly.GetType("Atmosphere.CloudsRaymarchedVolume", true);
                 coverage = AccessTools.Field(volume, "coverageMap");
                 rotation = AccessTools.Field(volume, "cloudRotationMatrix");
@@ -103,8 +101,6 @@ namespace CloudLoopFix
                 if (wide)
                 {
                     Type wrapper = coverage.FieldType;
-                    if (wrapper.Assembly.ManifestModule.ModuleVersionId != new Guid("752c32c2-9c32-40be-bad9-8a27f80a0a26"))
-                        throw new NotSupportedException("Cannot find the EVE fields used to map cloud coverage to spherical coordinates.");
                     mapType = AccessTools.Field(wrapper, "type");
                     mapMask = AccessTools.Field(wrapper, "alphaMask");
                     mapTexture = AccessTools.Field(wrapper, "textureValue");

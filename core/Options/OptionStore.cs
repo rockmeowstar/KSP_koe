@@ -90,6 +90,7 @@ namespace KerbalOverEngineering.Options
             F("Firefly", "DepthLighting", "Firefly"),
             F("Firefly", "GlobalCommandDedup", "Firefly"),
             F("Rendering", "InstancedPointLights", "D3D11"),
+            F("Rendering", "ShaderConstantUpdates", "UnityD3D11"),
             F("Rendering", "FrameGeneration", "OpticalFlow", defaultEnabled: false),
             F("Rendering", "AdaptiveFrameCadence", "OpticalFlow", "Rendering.FrameGeneration")
         };

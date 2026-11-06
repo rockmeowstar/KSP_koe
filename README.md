@@ -5,8 +5,8 @@
 <p align="center">
   <a href="https://github.com/rockmeowstar/ksp_koe/releases/latest"><img src="https://img.shields.io/github/v/release/rockmeowstar/ksp_koe?style=flat-square&amp;color=8b5cf6" alt="Latest release"></a>
   <img src="https://img.shields.io/badge/KSP-1.12.5-64748b?style=flat-square" alt="KSP 1.12.5">
-  <img src="https://img.shields.io/badge/Feature_flags-55-14b8a6?style=flat-square" alt="55 feature flags">
-  <img src="https://img.shields.io/badge/Local_checks-verified_2026--11--05-22c55e?style=flat-square" alt="Local validation snapshot: November 5, 2026">
+  <img src="https://img.shields.io/badge/Feature_flags-56-14b8a6?style=flat-square" alt="56 feature flags">
+  <img src="https://img.shields.io/badge/Local_checks-verified_2026--11--07-22c55e?style=flat-square" alt="Local validation snapshot: November 7, 2026">
   <a href="#ai-disclosure"><img src="https://img.shields.io/badge/AI_code-38%25_estimated-8b5cf6?style=flat-square" alt="Estimated AI-generated code: 38%"></a>
   <a href="#ai-disclosure"><img src="https://img.shields.io/badge/AI_tests-80%25_estimated-a78bfa?style=flat-square" alt="Estimated AI-generated tests: 80%"></a>
 </p>
@@ -18,7 +18,7 @@
   <a href="https://github.com/rockmeowstar/ksp_koe/issues">Report an issue</a>
 </p>
 
-KOE optimizes loading, resource handling, scene updates and rendering in KSP and supported mods. It combines **55 individually configurable options across 27 modules**. Frame generation is optional; most features do not require an NVIDIA GPU.
+KOE optimizes loading, resource handling, scene updates and rendering in KSP and supported mods. It combines **56 individually configurable options across 28 modules**. Frame generation is optional; most features do not require an NVIDIA GPU.
 
 ## Install
 
@@ -43,37 +43,45 @@ Windows x64 / KSP 1.12.5 is the tested platform. D3D11 modules require their res
 Frame interpolation is disabled by default: set `FrameGeneration = true` in the `[Rendering]` section of `GameData/KerbalOverEngineering/Options.cfg` to enable it. When enabled, it uses the accepted independent-layer pipeline in conservative mode: a 60 FPS target, capped at the current monitor refresh rate. Its separate `GameData/KerbalOverEngineering/FrameGeneration.cfg` includes the experimental `FullGeneration` flag. Set it to `true` to fill toward `TargetFPS`, initially set to your monitor's refresh rate when the config is created. Both modes have a hard limit of three additional frames per rendered frame and never target more than the monitor can display. Quality checks can reject frames, so the requested rate is not guaranteed.
 
 Integrations are grouped under [`stock/`](stock/) and [`mod/`](mod/). The complete option list and dependency categories are in [`Catalog`](core/Options/OptionStore.cs).
+`Rendering.ShaderConstantUpdates` uses the validated Rust/SSE2 kernel on the supported Windows x64/D3D11 Unity build. The assembly implementation remains available for comparison. Users do not need a Rust installation; unsupported native identities retain the original path. CPU-kernel benchmark percentages are separate from whole-game FPS results.
+Native builds use the checked-in Rust kernel. After editing `UniformUpdate.rs`, regenerate it with `stock/ShaderConstantUpdates/Build-Native.ps1 -RebuildRust` (Rust and Python required); a source/header mismatch stops the build. `-AssemblyOnly` builds the comparison implementation.
+
+EVE and Parallax integrations check the APIs they use rather than assembly MVIDs. Algorithm replacements also validate IL with resolved member names, so metadata token changes alone do not reject a rebuild. Unsupported APIs keep the original mod path; shader and native Unity binary checks remain strict. Parallax's KSPTextureLoader pipeline retains upstream ownership.
+
+EVE BC4 coverage maps use a batched Rust integral-image kernel on Windows x64, with an equivalent managed implementation as a fallback. The native library is embedded; users do not need Rust. To rebuild it, run `mod/EnvironmentalVisualEnhancements/CloudLoopFix/Build-Native.ps1` with `-Rustc` pointing to a Rust compiler and `-UpdateAsset`, then validate with `tests/Test-CoveragePrefix.ps1`. Source/binary hashes prevent packaging a stale coverage kernel. Point-light buffers are enrolled only after a recognized draw needs them; live constants are packed directly into the pending batch.
+
+The automatic material-instancing experiment was removed: the tested Deferred bundle does not contain instancing variants for the selected shaders, and changing a material flag alone cannot supply them. Native point-light batching yields to the original Unity lights when RenderDoc is loaded; this does not guarantee compatibility with the rest of the capture stack.
 
 ## Measured performance
 
-**0.15.3 snapshot · November 5, 2026.** Baseline: the same modded installation, with **KSPCommunityFixes enabled and KOE completely removed**. Comparison: KSPCommunityFixes + current KOE. One full reference flight per variant; these are observed results on one machine, not guaranteed gains.
+**0.15.5 snapshot · November 7, 2026.** The current full flight is compared with the **published November 5 reference, with KSPCommunityFixes enabled and KOE completely removed**. This is a historical comparison, not a new matched A/B. Cache states and observation windows differ; the figures describe these runs and do not guarantee the same gain on another machine. Percentages are approximate because the historical reference values are rounded.
 
 Intel Core i5-14600K · 64 GiB RAM · RTX 4060 8 GiB · 2560 × 1440 · D3D11 · NVIDIA 621.01. Craft: **01KOE, 353 parts**.
 
 | Loading stage | KSPCF | KSPCF + KOE |
 |---|---:|---:|
-| Main menu | 55.12 s | 51.17 s |
-| Save entry | 3.24 s | 2.95 s |
-| VAB | 3.06 s | 3.06 s |
-| Flight entry | 13.07 s | 11.37 s |
-| **Total** | **74.49 s** | **68.55 s** |
+| Main menu | 55.12 s | 51.26 s |
+| Save entry | 3.24 s | 2.93 s |
+| VAB | 3.06 s | 3.14 s |
+| Flight entry | 13.07 s | 11.56 s |
+| **Total** | **74.49 s** | **68.89 s** |
 
-**8.0% less loading time** (5.94 seconds saved), equivalent to an **8.7% increase in loading speed**. Part caches were rebuilt; KOE's DLC cache started empty. Other application caches and the OS cache were retained. Intentional measurement holds are excluded from the total.
+The current total is **7.5% lower** (about 5.60 seconds), equivalent to **8.1% higher loading throughput** than the historical reference. The November 5 reference rebuilt the part cache; the current run retained existing part/application/OS caches, and module changes may invalidate individual caches. Intentional measurement holds are excluded. This is not a matched cold-start improvement measurement.
 
 | Stage | Base FPS: KSPCF → + KOE | Change | Physics updates/s: KSPCF → + KOE | Change |
 |---|---:|---:|---:|---:|
-| KSC | 28.55 → 38.53 | +34.9% | 48.74 → 49.09 | +0.7% |
-| Launchpad idle | 20.86 → 30.05 | +44.1% | 41.17 → 47.12 | +14.5% |
-| Powered flight | 12.38 → 20.76 | +67.7% | 24.77 → 40.72 | +64.4% |
-| After fuel | 18.40 → 21.50 | +16.9% | 36.40 → 42.50 | +16.8% |
+| KSC | 28.55 → 43.59 | +52.7% | 48.74 → 50.09 | +2.8% |
+| Launchpad idle | 20.86 → 34.45 | +65.1% | 41.17 → 49.55 | +20.4% |
+| Powered flight | 12.38 → 21.39 | +72.8% | 24.77 → 41.59 | +67.9% |
+| After fuel | 18.40 → 23.37 | +27.0% | 36.40 → 45.65 | +25.4% |
 
-The first visible portrait during powered flight improved from **3.09 to 20.76 FPS (+571.3%)**. **Zero additional generated frames were presented** in this comparison. Physics means real `FixedUpdate` calls per second. Percentages use unrounded measurements; differences below 5% are treated as ordinary fluctuation.
+**Frame generation was disabled in the current run.** Physics means real `FixedUpdate` calls per second. Differences below 5% are treated as ordinary fluctuation. Visible portraits follow base rendered FPS, so the current flight portrait value is **21.39 FPS**, approximately **+592.2%** against the 3.09 FPS reference. This current portrait value follows the renderer rate; it was not sampled with a separate portrait counter during this run.
 
-[Published comparison tables](https://forum.kerbalspaceprogram.com/topic/232077-1125-kerbaloverengineering-koe-performance-optimization-for-ksp-and-its-mods/page/2/#findComment-4546383) · [0.15.3 release and limitations](https://github.com/rockmeowstar/ksp_koe/releases/tag/0.15.3)
+[Historical reference tables](https://forum.kerbalspaceprogram.com/topic/232077-1125-kerbaloverengineering-koe-performance-optimization-for-ksp-and-its-mods/page/2/#findComment-4546383) · [Banner data](assets/benchmarks-0.15.5.json) · [0.15.5 release](https://github.com/rockmeowstar/ksp_koe/releases/tag/0.15.5)
 
 ## Tests and completed checks
 
-The badge above records **local validation for 0.15.3**, not a continuously running CI result. Unit/algorithm checks, static IL checks, native GPU checks and full-game runs are separate forms of evidence.
+The badge above records the **latest local validation snapshot**, not a continuously running CI result. Results include retained checks from earlier iterations. Unit/algorithm checks, static IL checks, native GPU checks and full-game runs are separate forms of evidence.
 
 | Test group | Verified result | Scope |
 |---|---:|---|
@@ -84,7 +92,11 @@ The badge above records **local validation for 0.15.3**, not a continuously runn
 | [Loading budgets](tests/LoadingResourcesTests.cs) | 345 checks passed | Hardware-dependent worker/memory policy |
 | [GPU drag reduction](tests/Test-DragReduction.ps1) | 48 GPU cases passed | Exact integer statistics; render/compute/OM UAV state and counters restored |
 | [DLC cache](tests/Test-DlcCache.ps1) | 13 checks passed | Invalidation, corruption, source replacement and path isolation |
-| [Options](tests/OptionStoreTests.cs) | 55 distinct keys checked | Config creation, preservation, dependencies and recovery |
+| [Options](tests/OptionStoreTests.cs) | 56 distinct keys checked | Config creation, preservation, dependencies and recovery |
+| [Light buffer validity](tests/BufferValidityTests.cpp) | 935,000 differential checks passed | Full, empty and partially written buffers; 40 standalone native GPU content checks also passed |
+| [Map/unmap capture](tests/MapCaptureTests.cpp) | 1,787 native checks passed | Captured/GPU bytes, interleaved mappings, thread handoff, failed maps and table rehash |
+| [Capture lookup cache](tests/MapCaptureTests.cpp) | 2,532 native checks passed | Wanted-buffer transitions, context switches and capture/GPU byte parity with the cache enabled or disabled |
+| [Shader constants](tests/ShaderConstantKernelTests.cpp) | 9,718 assembly checks; 9,721 Rust checks | Original Unity bytes and dirty flags, overlap and protected-page boundaries; 20,000 captured inputs replayed per backend |
 
 These numbers count checks, cases or keys as labelled—not separate test files or coverage percentages. **Line/branch coverage has not been measured.**
 

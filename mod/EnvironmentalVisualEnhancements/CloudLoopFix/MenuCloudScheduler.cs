@@ -37,9 +37,10 @@ namespace CloudLoopFix
             try
             {
                 var assembly = AppDomain.CurrentDomain.GetAssemblies().Single(a => a.GetName().Name == "Atmosphere");
-                if (assembly.ManifestModule.ModuleVersionId != new Guid("8150e218-893c-4b2c-a852-b674a3006cfd"))
-                    throw new NotSupportedException("The EVE assembly does not match the build this patch supports.");
                 var type = assembly.GetType("Atmosphere.CelestialBodyCloudsHandler", true);
+                KerbalOverEngineering.Options.ManagedContract.Require(AccessTools.DeclaredMethod(type, "LoadBody"), "eceda5dea92ed3b5cdaee1397e8941b3616e3845aa4aa62ab3e383a1ff8a70bc");
+                KerbalOverEngineering.Options.ManagedContract.Require(AccessTools.DeclaredMethod(type, "Update"), "bc4d123260b9a9c3a7de4596d4459ceb253b74d93e753f824ca63138d4f90f3c");
+                KerbalOverEngineering.Options.ManagedContract.Require(AccessTools.DeclaredMethod(type, "ApplyConfigNode"), "1a254aaf96bf3df2492cab3bc16532deb5b92030adadeec2540bd1ca0338ef3c");
                 apply = AccessTools.DeclaredMethod(type, "ApplyConfigNode");
                 nodes = AccessTools.Field(type, "configNodes");
                 raymarched = AccessTools.Field(type, "hasRaymarchedVolumetrics");

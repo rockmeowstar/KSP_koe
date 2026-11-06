@@ -63,11 +63,9 @@ namespace MenuSkyboxFix
                 return;
             if (harmony != null)
                 return;
-            if (typeof(ModuleEngines).Assembly.ManifestModule.ModuleVersionId != new Guid("4b449f28-41f8-4227-adfa-ad3149c8fdba"))
-                throw new NotSupportedException("This patch requires the KSP 1.12.5 Assembly-CSharp build.");
             var assembly = AppDomain.CurrentDomain.GetAssemblies().Single(a => a.GetName().Name == "ParallaxContinued");
-            if (assembly.ManifestModule.ModuleVersionId != new Guid("1ecb998e-ce0b-4bfd-970f-fe0fa2d99def"))
-                throw new NotSupportedException("The Parallax assembly does not match the build this patch supports.");
+            string problem = KerbalOverEngineering.Options.ManagedContract.ParallaxProblem(assembly, "GpuSkyboxCopy");
+            if (problem != null) throw new NotSupportedException(problem);
             var type = assembly.GetType("Parallax.Scaled_System.SkyboxControl", true);
             cubeField = AccessTools.Field(type, "cubeMap");
             generatedField = AccessTools.Field(type, "alreadyGenerated");

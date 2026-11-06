@@ -113,12 +113,22 @@ namespace KerbalOverEngineering.Options
 
             public string Check(Feature feature)
             {
+                try { return CheckFeature(feature); }
+                catch (Exception error)
+                {
+                    return feature.Key + " dependency check failed: " + error.GetType().Name + ": " + error.Message;
+                }
+            }
+
+            string CheckFeature(Feature feature)
+            {
                 string problem = AssemblyProblem("Assembly-CSharp", "4b449f28-41f8-4227-adfa-ad3149c8fdba");
                 if (problem != null)
                     return problem;
                 problem = AssemblyProblem("0Harmony");
                 if (problem != null
                     && feature.Requirement != "D3D11"
+                    && feature.Requirement != "UnityD3D11"
                     && feature.Requirement != "OpticalFlow"
                     && feature.Requirement != "Native"
                     && feature.Requirement != "EveD3D11")
@@ -143,37 +153,22 @@ namespace KerbalOverEngineering.Options
                     case "Native":
                         return Environment.OSVersion.Platform == PlatformID.Win32NT
                             && IntPtr.Size == 8 ? FileProblem("UnityPlayer.dll", "e661981f033e2f1d32db6e44d43c0e0c1783b4cb3115caf393e7722673473317") : "Windows x64 required";
+                    case "UnityD3D11":
+                        return Direct3D() ?? FileProblem("UnityPlayer.dll", "e661981f033e2f1d32db6e44d43c0e0c1783b4cb3115caf393e7722673473317");
                     case "EVE":
                     case "EveD3D11":
-                        problem = AssemblyProblem("Atmosphere", "8150e218-893c-4b2c-a852-b674a3006cfd");
+                        problem = ManagedContract.EveProblem(assemblies.FirstOrDefault(a => a.GetName().Name == "Atmosphere"),
+                            assemblies.FirstOrDefault(a => a.GetName().Name == "Utils"), feature.Name);
                         if (problem != null)
                             return problem;
-                        if (feature.Name == "TexturePrefetch" || feature.Name == "DdsDirectUpload")
-                            return AssemblyProblem("Utils", "752c32c2-9c32-40be-bad9-8a27f80a0a26");
                         return feature.Requirement == "EveD3D11" ? Direct3D() : null;
                     case "Parallax":
                         var parallax = assemblies.FirstOrDefault(a => a.GetName().Name == "ParallaxContinued");
-                        if (parallax != null && parallax.ManifestModule.ModuleVersionId == new Guid("4695d1cd-8876-416d-98c8-24f821987e26"))
-                        {
-                            problem = FileProblem("GameData/ParallaxContinued/Plugins/ParallaxContinued.dll", "90ec6a3e3725170536f1b21c67c912329c68d358ca7f88e45f43ed7c3949f28f");
-                            if (problem != null)
-                                return problem;
-                            // AI-generated comment: 1.1.0 removed the old RGB conversion and DDS parser.
-                            // Retain the original upstream operations and ownership.
-                            switch (feature.Name)
-                            {
-                                case "GpuSkyboxCopy":
-                                    return "Parallax 1.1.0 already copies skybox faces on GPU";
-                                case "LaunchTextureRetention":
-                                    return "Parallax 1.1.0 already retains textures during body restarts";
-                                case "BiomeRgbPreparation":
-                                    return "Parallax 1.1.0 uploads biome indices directly; RGB expansion removed";
-                                case "DdsDirectUpload":
-                                    return FileProblem("GameData/KSPTextureLoader/Plugins/KSPTextureLoader.dll", "b12096a345261cbf704c6702fd4a0673d4b68aacb73e564a0c43072eca85bfce") ?? "Parallax 1.1.0 uses KSPTextureLoader native DDS uploads";
-                            }
-                        }
-
-                        return AssemblyProblem("ParallaxContinued", "1ecb998e-ce0b-4bfd-970f-fe0fa2d99def") ?? (feature.Name == "BiomeRgbPreparation" ? AssemblyProblem("Kopernicus", "7fd28341-4f5a-4edf-b5f4-35706c820e0e") : null);
+                        problem = ManagedContract.ParallaxProblem(parallax, feature.Name);
+                        if (problem != null || feature.Name != "BiomeRgbPreparation") return problem;
+                        var kopernicus = assemblies.FirstOrDefault(a => a.GetName().Name == "Kopernicus");
+                        return ManagedContract.IndexedBiomeProblem(kopernicus == null ? null
+                            : kopernicus.GetType("Kopernicus.Components.KopernicusCBAttributeMapSO", false));
                     case "Firefly":
                         return AssemblyProblem("Firefly") ?? AssemblyProblem("FireflyAPI") ?? FileProblem(
                             "GameData/Firefly/Plugins/Firefly.dll",

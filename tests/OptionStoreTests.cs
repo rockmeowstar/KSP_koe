@@ -19,11 +19,12 @@ static class OptionStoreTests
         try
         {
             Check(
-                Catalog.Features.Length == 55
-                && Catalog.Features.Select(f => f.Key).Distinct().Count() == 55,
-                "The option catalog must contain 55 distinct feature keys."
+                Catalog.Features.Length == 56
+                && Catalog.Features.Select(f => f.Key).Distinct().Count() == 56,
+                "The option catalog must contain 56 distinct feature keys."
             );
             var first = new OptionStore(path, f => f.Group == "EVE" ? "EVE missing" : null);
+            Check(first.Enabled("Rendering.ShaderConstantUpdates"), "Supported shader constants enabled on first config creation");
             Check(first.Created && first.Enabled("Stock.ExhaustSync") && !first.Enabled("EVE.CurveBakeHoist"), "Detect and generate");
             string manual = File.ReadAllText(path).Replace("ExhaustSync = true", "ExhaustSync = false") + "\n// user comment\n";
             File.WriteAllText(path, manual);
@@ -127,7 +128,7 @@ static class OptionStoreTests
 
             Check(failed && Directory.Exists(blocked), "Filesystem failure surfaces without replacing user directory");
             Check(Directory.GetFiles(root, "*.tmp").Length == 0, "Failed config publication cleans temporary file");
-            Console.WriteLine("Options: 55 feature keys checked; config creation, edits, dependencies and recovery passed.");
+            Console.WriteLine("Options: 56 feature keys checked; config creation, edits, dependencies and recovery passed.");
         }
         finally
         {

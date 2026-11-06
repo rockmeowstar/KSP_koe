@@ -10,7 +10,7 @@ $compilerReferences += Get-ChildItem -LiteralPath $managedDirectory -Filter 'Uni
     "/reference:$($_.FullName)"
 }
 function Test-Case([string]$Name,[string[]]$Sources,[string[]]$References = @(),[string[]]$Arguments = @()) {
-    & $csharpCompiler /nologo /optimize+ /unsafe "/out:$outputDirectory\$Name.exe" @References "$projectRoot\core\Options\LoadingResources.cs" @Sources
+    & $csharpCompiler /nologo /optimize+ /unsafe "/out:$outputDirectory\$Name.exe" @References "/reference:$managedDirectory\UnityEngine.CoreModule.dll" "$projectRoot\core\Options\ManagedContract.cs" "$projectRoot\core\Options\LoadingResources.cs" @Sources
     if ($LASTEXITCODE -ne 0) {
         throw "Compilation failed: $Name"
     }

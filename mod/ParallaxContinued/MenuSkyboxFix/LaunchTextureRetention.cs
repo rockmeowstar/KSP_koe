@@ -19,9 +19,8 @@ namespace MenuSkyboxFix
         public static long AvoidedUnloads, RetainedTextures;
         public static void Bind(Assembly assembly)
         {
-            if (typeof(FlightDriver).Assembly.ManifestModule.ModuleVersionId != new Guid("4b449f28-41f8-4227-adfa-ad3149c8fdba")
-                || assembly.ManifestModule.ModuleVersionId != new Guid("1ecb998e-ce0b-4bfd-970f-fe0fa2d99def"))
-                throw new NotSupportedException("The installed KSP or Parallax assembly does not match the supported build.");
+            string problem = KerbalOverEngineering.Options.ManagedContract.ParallaxProblem(assembly, "LaunchTextureRetention");
+            if (problem != null) throw new NotSupportedException(problem);
             var body = assembly.GetType("Parallax.ParallaxScatterBody", true);
             textures = AccessTools.Field(body, "loadedTextures");
             planetName = AccessTools.Field(body, "planetName");

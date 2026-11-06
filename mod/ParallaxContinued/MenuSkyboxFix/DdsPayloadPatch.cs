@@ -31,9 +31,8 @@ namespace MenuSkyboxFix
 
         public static MethodInfo Bind(Assembly assembly)
         {
-            if (typeof(ModuleEngines).Assembly.ManifestModule.ModuleVersionId != new Guid("4b449f28-41f8-4227-adfa-ad3149c8fdba")
-                || assembly.ManifestModule.ModuleVersionId != new Guid("1ecb998e-ce0b-4bfd-970f-fe0fa2d99def"))
-                throw new NotSupportedException("The installed KSP and Parallax DDS loaders do not match the supported builds.");
+            string problem = KerbalOverEngineering.Options.ManagedContract.ParallaxProblem(assembly, "DdsDirectUpload");
+            if (problem != null) throw new NotSupportedException(problem);
             var method = AccessTools.DeclaredMethod(assembly.GetType("Parallax.TextureLoader", true), "LoadDDSTexture", new[] { typeof(string), typeof(bool), typeof(bool) });
             if (method == null || !method.IsStatic || method.ReturnType != typeof(Texture2D))
                 throw new NotSupportedException("Parallax DDS signature changed");

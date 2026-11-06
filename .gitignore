@@ -7,6 +7,10 @@
 /artifacts/drag-reduction-tests/
 /artifacts/drag-reduction-build/
 /artifacts/dlc-cache-tests/
+/artifacts/coverage-prefix-tests/
+/artifacts/coverage-kernel-build/
+/artifacts/mod-contract-tests/
+/artifacts/shader-constants-production/
 *.obj
 *.pdb
 *.ilk

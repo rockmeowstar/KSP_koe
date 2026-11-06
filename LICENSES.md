@@ -8,6 +8,8 @@ ExhaustSyncFix - MIT
 ExpansionBufferFix - MIT
 FrameGeneration - MIT (MinHook/HDE: BSD-2-Clause; NVIDIA interface headers: MIT)
 InstancedPointLights original integration source - MIT
+ShaderConstantUpdates - MIT (MinHook/HDE and local call-hook extension: BSD-2-Clause)
+Rust core intrinsics - MIT OR Apache-2.0 (MIT option selected)
 InstancedPointLights Deferred-derived shaders and combined plugin binary - GPL-3.0
 Deferred upstream corresponding source - GPL-3.0
 LoadingScreenFix - MIT
@@ -24,7 +26,7 @@ KSPCommunityFixes CollisionStateFix integration - MIT (external KSPCF runtime no
 KSPCommunityFixes DragReductionFix integration and native compute plugin - MIT (external KSPCF runtime not redistributed)
 KSPCommunityFixes EarlyDlcCacheFix integration - MIT (external KSPCF runtime not redistributed)
 Waterfall RendererIndexFix integration - MIT (external Waterfall runtime not redistributed)
-EVE CloudLoopFix - MIT
+EVE CloudLoopFix and Rust coverage kernel - MIT (Rust compiler support: MIT; see licenses/Rust-MIT.txt)
 EVE CurveBakeFix - MIT
 EVE ShaderCorrectionGuards - MIT (MinHook/HDE: BSD-2-Clause)
 Firefly IdleFix - MIT
