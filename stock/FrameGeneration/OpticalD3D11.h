@@ -11,6 +11,8 @@
 #include <algorithm>
 #include "nvOpticalFlowD3D11.h"
 
+class IndependentLayers;
+
 class OpticalD3D11
 {
     struct DecisionReadback
@@ -59,6 +61,7 @@ class OpticalD3D11
     std::shared_ptr<Ticket> Phase(const std::shared_ptr<Ticket> &source, float fraction);
     ID3D11ShaderResourceView *ReferenceImage(const std::shared_ptr<Ticket> &source) const;
     void ReserveDecisions(unsigned capacity) { readbackLimit = (std::max)(readbackLimit, capacity); }
+    void SetLayerInput(ID3D11Texture2D *layers,bool filmic,float cloudFade);
     bool Generate(const std::shared_ptr<Ticket> &ticket, unsigned budgetMilliseconds);
     bool Completed(const std::shared_ptr<Ticket> &ticket) const;
     bool Wait(unsigned milliseconds = 5000);
@@ -76,6 +79,8 @@ class OpticalD3D11
         return flow[direction & 1].Get();
     }
     ID3D11Texture2D *DiagnosticMask() const { return mask.Get(); }
+    ID3D11Texture2D *DiagnosticContours(unsigned frame) const { return contours[frame & 1].Get(); }
+    double ContourMilliseconds() const { return contourMilliseconds; }
 
   private:
     friend struct ConfidenceGateFixture;
@@ -86,8 +91,14 @@ class OpticalD3D11
     void EstimateFlow(Ticket &ticket);
     void SetPhase(float fraction);
     void QueueMaskedWarp(Ticket &ticket);
+    void BuildContours(Ticket &ticket);
     void Signal(Ticket &ticket);
     void ReleaseDecision(Ticket &ticket);
+    void AllocateReadback(Ticket &ticket,bool preflight=false);
+    std::unique_ptr<IndependentLayers> independent;
+    Microsoft::WRL::ComPtr<ID3D11Texture2D> incomingLayers;
+    bool incomingFilmic{};
+    float incomingFade=1;
     void CopyImage(ID3D11ShaderResourceView *source, ID3D11RenderTargetView *target);
     HMODULE module{};
     NvOFHandle session{};
@@ -98,6 +109,18 @@ class OpticalD3D11
     Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> imageViews[2], flowViews[2];
     Microsoft::WRL::ComPtr<ID3D11Texture2D> silhouettes[2];
     Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> silhouetteViews[2];
+    Microsoft::WRL::ComPtr<ID3D11Texture2D> contours[2];
+    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> contourViews[2];
+    Microsoft::WRL::ComPtr<ID3D11UnorderedAccessView> contourTargets[2];
+    Microsoft::WRL::ComPtr<ID3D11ComputeShader> contourShader;
+    std::uint64_t contourSubmission{};
+    struct ContourTiming
+    {
+        Microsoft::WRL::ComPtr<ID3D11Query> frequency, begin, end;
+        bool pending{};
+    };
+    ContourTiming contourTimings[4];
+    double contourMilliseconds{};
     bool silhouetteValid[2]{};
     Microsoft::WRL::ComPtr<ID3D11RenderTargetView> outputView;
     Microsoft::WRL::ComPtr<ID3D11RenderTargetView> inputTargets[2];

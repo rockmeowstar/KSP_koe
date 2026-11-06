@@ -29,7 +29,31 @@ using Interpolator = FrucD3D11;
 #include "GpuQueueLimit.h"
 #include "TargetFrameRate.h"
 #include "DisplayRefresh.h"
+#include "LayerTiming.h"
+#include "LayerPassAudit.h"
+#include "DeferredStencil.h"
+#include "FireflyLayerCapture.h"
+#include "IndependentSourceCapture.h"
+#include "AtmosphereSourceProbe.h"
 using Microsoft::WRL::ComPtr;
+static bool IndependentMode()
+{
+    static bool mode=[](){char value[8]{};return GetEnvironmentVariableA("KOE_INDEPENDENT_LAYERS",value,8)==1&&value[0]=='1';}();
+    return mode;
+}
+static std::atomic<float> independentCloudFade{1};
+static std::atomic<long long> independentPacked{},independentUnavailable{},independentFireflyCopies{},independentParityRejected{};
+static std::atomic<long long> publishedChanged{},publishedComposed{},publishedPixelTotal{};
+static std::atomic<long long> observedDisplayed{},displayStatisticsFailures{},displayStatisticsSamples{};
+extern "C" __declspec(dllexport) void SetFrameGenerationCloudFade(float fade){independentCloudFade=fade;}
+extern "C" __declspec(dllexport) void ReadFrameGenerationIndependent(long long *values,int count)
+{
+    if(!values||count!=11)return;
+    values[0]=IndependentMode()?1:0;values[1]=independentPacked.load();values[2]=independentUnavailable.load();
+    values[3]=independentFireflyCopies.load();values[4]=independentParityRejected.load();
+    values[5]=publishedChanged.load();values[6]=publishedComposed.load();values[7]=publishedPixelTotal.load();
+    values[8]=observedDisplayed.load();values[9]=displayStatisticsFailures.load();values[10]=displayStatisticsSamples.load();
+}
 using Clock = std::chrono::steady_clock;
 static std::atomic<bool> enabled{}, allowed{}, started{}, stopWorker{};
 static std::atomic<bool> adaptiveCadence{true}, fullGeneration{};
@@ -44,9 +68,22 @@ static std::atomic<long long> flowExecutions{}, preflightVetoes{};
 static std::atomic<long long> inputWaitUs{}, decisionAgeUs{};
 static std::atomic<long long> analyzedPixels{}, safePixels{}, synthesizedPixels{}, composedPixels{};
 static std::atomic<long long> silhouetteCopies{}, silhouetteFrames{};
+static std::atomic<long long> layerGpuUs[4]{}, fireflyPairs{};
+static std::atomic<long long> layerSourceFailures{};
+static std::atomic<long long> stencilAttempts{}, stencilSuccesses{}, stencilFailures{};
+static std::atomic<long long> celestialStencilFailures{};
 static std::atomic<int> captureFormat{}, captureViewFormat{};
 static std::mutex stateMutex;
+static AtmosphereSourceProbe atmosphereProbe;
+extern "C" __declspec(dllexport) void SetFrameGenerationAtmosphereProbe(void *c,void *t,void *d,int tone,const float *z)
+{
+    if(!z)return;
+    std::lock_guard<std::mutex> lock(stateMutex);
+    atmosphereProbe.Set(static_cast<ID3D11Texture2D*>(c),static_cast<ID3D11Texture2D*>(t),static_cast<ID3D11Texture2D*>(d),tone,z);
+}
 static ComPtr<ID3D11Texture2D> silhouetteInput;
+static ComPtr<ID3D11Texture2D> cloudInput;
+static ComPtr<ID3D11Texture2D> waterInput;
 static std::wstring library;
 #ifdef KOE_CAPTURE_AUDIT
 static std::filesystem::path auditRoot;
@@ -54,6 +91,25 @@ static std::atomic<unsigned> auditInstances{};
 static std::vector<double> auditSchedule;
 static size_t nextAudit{};
 static double auditEpoch{};
+static std::atomic<int> datasetRequest{-1}, datasetComplete{-1};
+static std::atomic<bool> datasetBusy{};
+static std::atomic<double> datasetEarliest{};
+static bool datasetMode{};
+extern "C" __declspec(dllexport) int RequestFrameGenerationDataset(int id)
+{
+    if(id<0 || auditRoot.empty())return -1;
+    if(!enabled.load() || !allowed.load())return 0;
+    if(datasetBusy.exchange(true))return 0;
+    try
+    {
+        if(std::filesystem::exists(auditRoot/("case-"+std::to_string(id))))
+        {datasetBusy=false;return -1;}
+    }
+    catch(...) { datasetBusy=false;return -1; }
+    datasetEarliest=std::chrono::duration<double>(Clock::now().time_since_epoch()).count();
+    datasetRequest=id;return 1;
+}
+extern "C" __declspec(dllexport) int CompletedFrameGenerationDataset() { return datasetComplete.load(); }
 #endif
 static std::atomic<HWND> gameWindow{};
 static std::atomic<HWND> overlayWindow{};
@@ -81,6 +137,11 @@ struct Slot
     ComPtr<ID3D11Texture2D> finalTexture;
     ComPtr<ID3D11Texture2D> silhouette;
     ComPtr<IDXGIKeyedMutex> silhouetteMutex;
+    ComPtr<ID3D11Texture2D> layers;
+    ComPtr<IDXGIKeyedMutex> layerMutex;
+    HANDLE layerHandle{};
+    bool hasLayers{},cloudFilmic{};
+    float cloudFade=1;
     HANDLE silhouetteHandle{};
     bool hasSilhouette{};
     ComPtr<IDXGIKeyedMutex> finalMutex;
@@ -96,7 +157,15 @@ struct Slot
         if (finalHandle)
             CloseHandle(finalHandle);
         if (silhouetteHandle) CloseHandle(silhouetteHandle);
+        if (layerHandle) CloseHandle(layerHandle);
     }
+};
+struct Contribution
+{
+    ComPtr<ID3D11Texture2D> source, sourceResource, before, mask, after;
+    ComPtr<ID3D11ShaderResourceView> sourceView, beforeView, maskView, afterView;
+    ComPtr<ID3D11RenderTargetView> target;
+    bool ready{}, readable{};
 };
 struct Shared
 {
@@ -108,6 +177,24 @@ struct Shared
     ComPtr<ID3D11RenderTargetView> silhouetteTarget;
     ComPtr<ID3D11Resource> silhouetteSource;
     ComPtr<ID3D11ShaderResourceView> silhouetteSourceView;
+    Contribution contributions[2];
+    ComPtr<ID3D11Texture2D> cloudSource;
+    ComPtr<ID3D11ShaderResourceView> cloudView;
+    ComPtr<ID3D11Texture2D> waterSource;
+    ComPtr<ID3D11ShaderResourceView> waterView;
+    int layerFrame = -1;
+    int stencilMaskFrame = -1;
+    std::unique_ptr<DeferredStencil> stencilDecoder;
+    std::unique_ptr<FireflyLayerCapture> independentFirefly;
+    std::unique_ptr<IndependentSourceCapture> independentSources;
+    int independentFireflyFrame=-1;
+    ComPtr<ID3D11Texture2D> independentLocalClasses;
+    bool independentLocalClassesValid{};
+    bool cleanHasLayers{};
+    float cleanCloudFade=1;
+    LayerTiming layerTiming;
+    int geometryTiming = -1;
+    int waterTiming = -1;
     std::uint64_t silhouetteSerial{}, usedSilhouetteSerial{};
     bool cleanHasSilhouette{};
     ComPtr<ID3D11DeviceContext1> captureContext;
@@ -116,6 +203,8 @@ struct Shared
     ComPtr<ID3D11VertexShader> captureVS;
     ComPtr<ID3D11PixelShader> capturePS;
     ComPtr<ID3D11PixelShader> silhouetteCapturePS;
+    ComPtr<ID3D11PixelShader> contributionPS;
+    ComPtr<ID3D11BlendState> contributionBlend;
     ComPtr<ID3D11RasterizerState> captureRaster;
     ComPtr<ID3D11Resource> captureSource;
     ComPtr<ID3D11ShaderResourceView> captureSourceView;
@@ -127,6 +216,12 @@ struct Shared
     std::atomic<double> lastCaptured{};
 };
 static std::shared_ptr<Shared> shared;
+static std::shared_ptr<Shared> independentCaptureShared;
+extern "C" __declspec(dllexport) int CanFrameGenerationIndependentCapture()
+{
+    std::lock_guard<std::mutex> lock(stateMutex);
+    return IndependentMode() && shared!=nullptr && enabled.load() && allowed.load()?1:0;
+}
 static double Seconds()
 {
     return std::chrono::duration<double>(Clock::now().time_since_epoch()).count();
@@ -159,6 +254,9 @@ static std::shared_ptr<Shared> CreateShared(IDXGISwapChain *chain, ID3D11Texture
     buffer->GetDesc(&value->desc);
     Check(chain->GetDevice(IID_PPV_ARGS(&value->source)), "source device");
     value->source->GetImmediateContext(&value->context);
+#ifdef KOE_CAPTURE_AUDIT
+    LayerPassAudit::Start(value->context.Get(), auditRoot);
+#endif
     auto desc = value->desc;
     desc.MipLevels = 1;
     desc.ArraySize = 1;
@@ -191,6 +289,16 @@ static std::shared_ptr<Shared> CreateShared(IDXGISwapChain *chain, ID3D11Texture
         Check(slot.silhouette.As(&resource), "silhouette resource");
         Check(resource->CreateSharedHandle(nullptr, DXGI_SHARED_RESOURCE_READ | DXGI_SHARED_RESOURCE_WRITE,
             nullptr, &slot.silhouetteHandle), "silhouette handle");
+        if(IndependentMode())
+        {
+            auto layers=desc;layers.Format=DXGI_FORMAT_R16G16B16A16_FLOAT;
+            layers.ArraySize=LayerReconstruction::PackedSlices;
+            Check(value->source->CreateTexture2D(&layers,nullptr,&slot.layers),"independent shared array");
+            Check(slot.layers.As(&slot.layerMutex),"independent layer mutex");
+            resource.Reset();Check(slot.layers.As(&resource),"independent layer resource");
+            Check(resource->CreateSharedHandle(nullptr,DXGI_SHARED_RESOURCE_READ|DXGI_SHARED_RESOURCE_WRITE,
+                nullptr,&slot.layerHandle),"independent layer handle");
+        }
     }
     desc.MiscFlags = 0;
     Check(value->source->CreateTexture2D(&desc, nullptr, &value->cleanWorld), "pre-UI world texture");
@@ -221,12 +329,21 @@ static void CapturePair(Shared &value, ID3D11Texture2D *finalImage)
                 slot.mutex->ReleaseSync(0);
                 continue;
             }
+            if(slot.layerMutex && slot.layerMutex->AcquireSync(0,0)!=S_OK)
+            {
+                slot.silhouetteMutex->ReleaseSync(0);slot.finalMutex->ReleaseSync(0);slot.mutex->ReleaseSync(0);
+                continue;
+            }
             value.context->CopyResource(slot.texture.Get(), value.cleanWorld.Get());
             value.context->CopyResource(slot.finalTexture.Get(), finalImage);
             slot.hasSilhouette = value.cleanHasSilhouette;
             if (slot.hasSilhouette) silhouetteFrames++;
             if (slot.hasSilhouette) value.context->CopyResource(slot.silhouette.Get(), value.cleanSilhouette.Get());
+            slot.hasLayers=value.cleanHasLayers;slot.cloudFade=value.cleanCloudFade;
+            slot.cloudFilmic=cloudInput!=nullptr;
+            if(slot.hasLayers)value.context->CopyResource(slot.layers.Get(),value.independentSources->Image());
             value.context->Flush();
+            if(slot.layerMutex)Check(slot.layerMutex->ReleaseSync(1),"independent source release");
             Check(slot.silhouetteMutex->ReleaseSync(1), "silhouette release");
             Check(slot.finalMutex->ReleaseSync(1), "UI release");
             Check(slot.mutex->ReleaseSync(1), "capture release");
@@ -406,14 +523,71 @@ static void CaptureWorld(Shared &value, ID3D11Texture2D *image, DXGI_FORMAT form
         Check(
             value.source->CreatePixelShader(blob->GetBufferPointer(), blob->GetBufferSize(), nullptr, &value.capturePS),
             "capture PS create");
-        const char *maskPixel =
-            "Texture2D<float4> image:register(t0);float4 main(float4 p:SV_Position):SV_Target{return image.Load(int3(int2(p.xy),0));}";
+        const char *maskPixel = R"HLSL(
+Texture2D<float4> image:register(t0);
+Texture2D<float> firefly:register(t1);
+Texture2D<float> transparentEffects:register(t2);
+Texture2D<float4> clouds:register(t3);
+Texture2D<float> oceanDepth:register(t4);
+float4 main(float4 p:SV_Position):SV_Target
+{
+    int2 pixel=int2(p.xy);
+    float4 layer=image.Load(int3(pixel,0));
+    uint flags=uint(round(layer.a*255));
+    uint surface=uint(round(layer.r*255));
+    if(surface>=1 && surface<=5)flags=128;
+    uint ow,oh;oceanDepth.GetDimensions(ow,oh);
+    if(ow>2 && oh>2)
+    {
+        uint w,h;image.GetDimensions(w,h);
+        int2 oceanPixel=int2((p.xy/float2(w,h))*float2(ow,oh));
+        oceanPixel.y=int(oh)-1-oceanPixel.y;
+        float depth=oceanDepth.Load(int3(oceanPixel,0));
+        if(depth>0 && depth<1)layer.rgb=float3(3.0/255,0,0);
+    }
+    uint cw,ch;clouds.GetDimensions(cw,ch);
+    if(cw>2 && ch>2)
+    {
+        uint w,h;image.GetDimensions(w,h);
+        int2 cloudPixel=int2((p.xy/float2(w,h))*float2(cw,ch));
+        cloudPixel.y=int(ch)-1-cloudPixel.y;
+        float transmission=clouds.Load(int3(cloudPixel,0)).a;
+        if(transmission<1.0-1.0/1024)flags|=2;
+    }
+    uint w,h,fw,fh;image.GetDimensions(w,h);firefly.GetDimensions(fw,fh);
+    if(w==fw && h==fh)
+    {
+        int2 effectPixel=int2(pixel.x,int(h)-1-pixel.y);
+        if(firefly.Load(int3(effectPixel,0))>.5)flags|=1;
+    }
+    transparentEffects.GetDimensions(fw,fh);
+    if(w==fw && h==fh && transparentEffects.Load(int3(pixel.x,int(h)-1-pixel.y,0))>.5)flags|=4;
+    layer.a=flags/255.0;
+    return layer;
+}
+)HLSL";
         blob.Reset();
         errors.Reset();
         Check(D3DCompile(maskPixel, strlen(maskPixel), nullptr, nullptr, nullptr, "main", "ps_5_0",
             D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &blob, &errors), "silhouette capture PS");
         Check(value.source->CreatePixelShader(blob->GetBufferPointer(), blob->GetBufferSize(), nullptr,
             &value.silhouetteCapturePS), "silhouette capture PS create");
+        const char *difference=R"HLSL(
+Texture2D<float4> beforeImage:register(t0);Texture2D<float4> afterImage:register(t1);
+float main(float4 p:SV_Position):SV_Target
+{
+    return any(abs(beforeImage.Load(int3(int2(p.xy),0)).rgb-afterImage.Load(int3(int2(p.xy),0)).rgb)>1.0/1024)?1:0;
+}
+)HLSL";
+        blob.Reset();errors.Reset();
+        Check(D3DCompile(difference,strlen(difference),nullptr,nullptr,nullptr,"main","ps_5_0",
+            D3DCOMPILE_OPTIMIZATION_LEVEL3,0,&blob,&errors),"contribution shader compile");
+        Check(value.source->CreatePixelShader(blob->GetBufferPointer(),blob->GetBufferSize(),nullptr,&value.contributionPS),"contribution shader");
+        D3D11_BLEND_DESC blend{};
+        auto &rt=blend.RenderTarget[0];rt.BlendEnable=TRUE;
+        rt.SrcBlend=rt.DestBlend=rt.SrcBlendAlpha=rt.DestBlendAlpha=D3D11_BLEND_ONE;
+        rt.BlendOp=rt.BlendOpAlpha=D3D11_BLEND_OP_MAX;rt.RenderTargetWriteMask=D3D11_COLOR_WRITE_ENABLE_RED;
+        Check(value.source->CreateBlendState(&blend,&value.contributionBlend),"contribution union blend");
         D3D11_RASTERIZER_DESC rd{};
         rd.FillMode = D3D11_FILL_SOLID;
         rd.CullMode = D3D11_CULL_NONE;
@@ -440,6 +614,8 @@ static void CaptureWorld(Shared &value, ID3D11Texture2D *image, DXGI_FORMAT form
     auto *target = silhouette ? value.silhouetteTarget.Get() : value.captureTarget.Get();
     auto *view = sourceView.Get();
     value.context->OMSetRenderTargets(1, &target, nullptr);
+    value.context->OMSetBlendState(nullptr,nullptr,0xffffffff);
+    value.context->OMSetDepthStencilState(nullptr,0);
     D3D11_VIEWPORT vp{0, 0, static_cast<float>(value.desc.Width), static_cast<float>(value.desc.Height), 0, 1};
     value.context->RSSetViewports(1, &vp);
     value.context->RSSetState(value.captureRaster.Get());
@@ -448,22 +624,240 @@ static void CaptureWorld(Shared &value, ID3D11Texture2D *image, DXGI_FORMAT form
     value.context->VSSetShader(value.captureVS.Get(), nullptr, 0);
     value.context->PSSetShader(silhouette ? value.silhouetteCapturePS.Get() : value.capturePS.Get(), nullptr, 0);
     value.context->PSSetShaderResources(0, 1, &view);
+    ID3D11ShaderResourceView *effects[4]{};
+    if (silhouette)
+        for (unsigned i=0;i<2;++i) if(value.contributions[i].ready)effects[i]=value.contributions[i].maskView.Get();
+    if(silhouette && cloudInput)
+    {
+        ComPtr<ID3D11Device> owner;cloudInput->GetDevice(&owner);
+        if(owner.Get()==value.source.Get())
+        {
+            if(value.cloudSource!=cloudInput)
+            {
+                value.cloudView.Reset();value.cloudSource=cloudInput;
+                D3D11_TEXTURE2D_DESC desc{};cloudInput->GetDesc(&desc);
+                D3D11_SHADER_RESOURCE_VIEW_DESC srv{};
+                srv.ViewDimension=D3D11_SRV_DIMENSION_TEXTURE2D;srv.Texture2D.MipLevels=1;
+                srv.Format=desc.Format;
+                if(desc.Format==DXGI_FORMAT_R16G16B16A16_TYPELESS)srv.Format=DXGI_FORMAT_R16G16B16A16_FLOAT;
+                if(desc.Format==DXGI_FORMAT_R32G32B32A32_TYPELESS)srv.Format=DXGI_FORMAT_R32G32B32A32_FLOAT;
+                if(ColorFamily(desc.Format)==1)srv.Format=DXGI_FORMAT_R8G8B8A8_UNORM;
+                if(ColorFamily(desc.Format)==2)srv.Format=DXGI_FORMAT_B8G8R8A8_UNORM;
+                if(FAILED(value.source->CreateShaderResourceView(cloudInput.Get(),&srv,&value.cloudView)))layerSourceFailures++;
+            }
+            effects[2]=value.cloudView.Get();
+        }
+    }
+    if(silhouette && waterInput)
+    {
+        ComPtr<ID3D11Device> owner;waterInput->GetDevice(&owner);
+        if(owner.Get()==value.source.Get())
+        {
+            if(value.waterSource.Get()!=waterInput.Get())
+            {
+                value.waterView.Reset();value.waterSource=waterInput;
+                D3D11_SHADER_RESOURCE_VIEW_DESC srv{};
+                srv.Format=DXGI_FORMAT_R32_FLOAT;srv.ViewDimension=D3D11_SRV_DIMENSION_TEXTURE2D;srv.Texture2D.MipLevels=1;
+                Check(value.source->CreateShaderResourceView(waterInput.Get(),&srv,&value.waterView),"ocean coverage SRV");
+            }
+            effects[3]=value.waterView.Get();
+        }
+    }
+    value.context->PSSetShaderResources(1, 4, effects);
+    int layerTimer = silhouette ? value.layerTiming.Begin(value.source.Get(),value.context.Get(),2,value.cleanSerial+1) : -1;
     value.context->Draw(3, 0);
+    value.layerTiming.End(value.context.Get(),layerTimer);
     view = nullptr;
     value.context->PSSetShaderResources(0, 1, &view);
+    effects[0]=effects[1]=effects[2]=effects[3]=nullptr;
+    value.context->PSSetShaderResources(1, 4, effects);
     value.captureContext->SwapDeviceContextState(previous.Get(), &value.captureState);
+}
+static void CaptureContribution(Shared &value, unsigned index, bool end)
+{
+    auto &effect=value.contributions[index];
+    if(!end)
+    {
+        effect.source.Reset();
+        ComPtr<ID3D11RenderTargetView> target;
+        value.context->OMGetRenderTargets(1,&target,nullptr);
+        if(!target)return;
+        ComPtr<ID3D11Resource> resource;target->GetResource(&resource);
+        if(FAILED(resource.As(&effect.source)))return;
+    }
+    if(!effect.source)return;
+    D3D11_TEXTURE2D_DESC desc{};effect.source->GetDesc(&desc);
+    if(desc.Width!=value.desc.Width || desc.Height!=value.desc.Height || desc.SampleDesc.Count!=1)return;
+    auto format=desc.Format;
+    if(format==DXGI_FORMAT_R16G16B16A16_TYPELESS || format==DXGI_FORMAT_R16G16B16A16_FLOAT)format=DXGI_FORMAT_R16G16B16A16_FLOAT;
+    else if(ColorFamily(format)==1)format=DXGI_FORMAT_R8G8B8A8_UNORM;
+    else if(ColorFamily(format)==2)format=DXGI_FORMAT_B8G8R8A8_UNORM;
+    else return;
+    if(!value.captureState)CaptureWorld(value,effect.source.Get(),desc.Format);
+    bool readable=(desc.BindFlags & D3D11_BIND_SHADER_RESOURCE)!=0;
+    if(readable && effect.sourceResource.Get()!=effect.source.Get())
+    {
+        effect.sourceView.Reset();effect.sourceResource=effect.source;
+        D3D11_SHADER_RESOURCE_VIEW_DESC srv{};srv.Format=format;
+        srv.ViewDimension=D3D11_SRV_DIMENSION_TEXTURE2D;srv.Texture2D.MipLevels=1;
+        Check(value.source->CreateShaderResourceView(effect.source.Get(),&srv,&effect.sourceView),"contribution source view");
+    }
+    D3D11_TEXTURE2D_DESC previous{};
+    if(effect.before)effect.before->GetDesc(&previous);
+    if(!effect.before || previous.Format!=desc.Format || previous.Width!=desc.Width || previous.Height!=desc.Height || effect.readable!=readable)
+    {
+        if(end){effect.source.Reset();return;}
+        effect.beforeView.Reset();effect.before.Reset();effect.maskView.Reset();effect.target.Reset();effect.mask.Reset();
+        effect.after.Reset();effect.afterView.Reset();
+        desc.BindFlags=D3D11_BIND_SHADER_RESOURCE;desc.MiscFlags=desc.CPUAccessFlags=0;desc.Usage=D3D11_USAGE_DEFAULT;
+        Check(value.source->CreateTexture2D(&desc,nullptr,&effect.before),"contribution history");
+        D3D11_SHADER_RESOURCE_VIEW_DESC srv{};srv.Format=format;
+        srv.ViewDimension=D3D11_SRV_DIMENSION_TEXTURE2D;srv.Texture2D.MipLevels=1;
+        Check(value.source->CreateShaderResourceView(effect.before.Get(),&srv,&effect.beforeView),"contribution history view");
+        if(!readable)
+        {
+            Check(value.source->CreateTexture2D(&desc,nullptr,&effect.after),"contribution unreadable target copy");
+            Check(value.source->CreateShaderResourceView(effect.after.Get(),&srv,&effect.afterView),"contribution target copy view");
+        }
+        desc.Format=DXGI_FORMAT_R8_UNORM;desc.BindFlags|=D3D11_BIND_RENDER_TARGET;
+        Check(value.source->CreateTexture2D(&desc,nullptr,&effect.mask),"contribution coverage");
+        Check(value.source->CreateShaderResourceView(effect.mask.Get(),nullptr,&effect.maskView),"contribution coverage view");
+        Check(value.source->CreateRenderTargetView(effect.mask.Get(),nullptr,&effect.target),"contribution coverage target");
+        effect.ready=false;
+        effect.readable=readable;
+    }
+    int timer=value.layerTiming.Begin(value.source.Get(),value.context.Get(),1,value.cleanSerial+1);
+    if(!end)value.context->CopyResource(effect.before.Get(),effect.source.Get());
+    else
+    {
+        if(!readable)value.context->CopyResource(effect.after.Get(),effect.source.Get());
+        ComPtr<ID3DDeviceContextState> restore;
+        value.captureContext->SwapDeviceContextState(value.captureState.Get(),&restore);
+        auto *target=effect.target.Get();
+        if(!effect.ready){float zeros[4]{};value.context->ClearRenderTargetView(target,zeros);}
+        value.context->OMSetRenderTargets(1,&target,nullptr);
+        value.context->OMSetBlendState(value.contributionBlend.Get(),nullptr,0xffffffff);
+        D3D11_VIEWPORT viewport{0,0,float(desc.Width),float(desc.Height),0,1};
+        value.context->RSSetViewports(1,&viewport);value.context->RSSetState(value.captureRaster.Get());
+        value.context->IASetInputLayout(nullptr);value.context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        value.context->VSSetShader(value.captureVS.Get(),nullptr,0);value.context->PSSetShader(value.contributionPS.Get(),nullptr,0);
+        ID3D11ShaderResourceView *views[]={effect.beforeView.Get(),readable?effect.sourceView.Get():effect.afterView.Get()};
+        value.context->PSSetShaderResources(0,2,views);value.context->Draw(3,0);
+        views[0]=views[1]=nullptr;value.context->PSSetShaderResources(0,2,views);
+        value.captureContext->SwapDeviceContextState(restore.Get(),&value.captureState);
+        effect.ready=true;effect.source.Reset();if(index==0)fireflyPairs++;
+    }
+    value.layerTiming.End(value.context.Get(),timer);
 }
 static void __stdcall BeforeUI(int event)
 {
-    if ((event != 1 && event != 2) || !enabled.load() || !allowed.load())
+    bool effectCapture=event==13||event==15;
+    if (((event < 1 || event > 20) && (event & 255) != 11 && (event & 255) != 12 && (event & 7) != 6)
+        || ((!enabled.load() || !allowed.load()) && !effectCapture))
         return;
     try
     {
         std::lock_guard<std::mutex> lock(stateMutex);
+        if(effectCapture && IndependentMode())
+        {
+            if(event==13)
+            {
+                if(!shared)return;
+                if(!shared->independentFirefly)shared->independentFirefly=std::make_unique<FireflyLayerCapture>(shared->source.Get(),shared->context.Get());
+                if(shared->independentFirefly->Begin())independentCaptureShared=shared;
+            }
+            else
+            {
+                auto captured=independentCaptureShared;
+                if(!captured)return;
+                captured->independentFirefly->End();captured->independentFireflyFrame=captured->layerFrame;
+                if(captured->independentFirefly->Image())independentFireflyCopies++;
+                independentCaptureShared.reset();
+            }
+            return;
+        }
         if (!shared)
             return;
+        if ((event & 7) == 6)
+        {
+            int frame = event >> 3;
+            if (frame != shared->layerFrame)
+            {
+                shared->layerFrame = frame;
+                for(auto &effect:shared->contributions)effect.ready=false;
+                shared->independentLocalClassesValid=false;
+                if(shared->independentSources)shared->independentSources->BeginFrame();
+            }
+            return;
+        }
+        if(event==19){shared->independentLocalClassesValid=false;return;}
+        if((event&255)==11 || (event&255)==12)
+        {
+            stencilAttempts++;
+            bool celestial=(event&255)==12;
+            auto &failures=celestial?celestialStencilFailures:stencilFailures;
+            int timer=-1;
+            try
+            {
+                ComPtr<ID3D11DepthStencilView> depth;
+                shared->context->OMGetRenderTargets(0,nullptr,&depth);
+                if(!depth || !silhouetteInput){failures++;return;}
+                if(!shared->stencilDecoder)shared->stencilDecoder=std::make_unique<DeferredStencil>(shared->source.Get());
+                unsigned options=unsigned(event)>>8;
+                timer=shared->layerTiming.Begin(shared->source.Get(),shared->context.Get(),0,shared->cleanSerial+1);
+                bool success=shared->stencilDecoder->Capture(depth.Get(),silhouetteInput.Get(),
+                    (options&1)!=0 || shared->stencilMaskFrame!=shared->layerFrame,(options&2)!=0,(options&4)!=0,celestial?4u:0u);
+                if(success && IndependentMode() && !celestial)
+                {
+                    if(!shared->independentLocalClasses)
+                    {
+                        D3D11_TEXTURE2D_DESC desc{};silhouetteInput->GetDesc(&desc);
+                        desc.BindFlags=D3D11_BIND_SHADER_RESOURCE|D3D11_BIND_RENDER_TARGET;
+                        Check(shared->source->CreateTexture2D(&desc,nullptr,&shared->independentLocalClasses),"independent local camera classes");
+                    }
+                    shared->independentLocalClassesValid=shared->stencilDecoder->Capture(depth.Get(),shared->independentLocalClasses.Get(),true,false,(options&4)!=0);
+                }
+                shared->layerTiming.End(shared->context.Get(),timer);
+                timer=-1;
+                if(success){stencilSuccesses++;shared->stencilMaskFrame=shared->layerFrame;shared->silhouetteSerial++;}
+                else failures++;
+            }
+            catch(const std::exception &)
+            {if(timer>=0)shared->layerTiming.End(shared->context.Get(),timer);failures++;}
+            return;
+        }
+        if(event==7 || event==8)
+        {
+            if(event==7)shared->waterTiming=shared->layerTiming.Begin(shared->source.Get(),shared->context.Get(),1,shared->cleanSerial+1);
+            else { shared->layerTiming.End(shared->context.Get(),shared->waterTiming);shared->waterTiming=-1; }
+            return;
+        }
+        if (event==5)
+        {
+            if(shared->geometryTiming>=0)shared->layerTiming.End(shared->context.Get(),shared->geometryTiming);
+            shared->geometryTiming=shared->layerTiming.Begin(shared->source.Get(),shared->context.Get(),0,shared->cleanSerial+1);
+            return;
+        }
+        if (event==3 || event==4)
+        {
+            CaptureContribution(*shared,0,event==4);
+            return;
+        }
+        if(event==9 || event==10 || event==20)
+        {
+            CaptureContribution(*shared,1,event==10);
+            if(event!=10 && IndependentMode())
+            {
+                if(!shared->independentSources)shared->independentSources=std::make_unique<IndependentSourceCapture>(shared->source.Get(),shared->context.Get(),shared->desc.Width,shared->desc.Height);
+                shared->independentSources->CaptureOpaque(shared->contributions[1].before.Get(),
+                    event==9 && shared->independentLocalClassesValid?shared->independentLocalClasses.Get():nullptr);
+            }
+            return;
+        }
         if (event == 2)
         {
+            shared->layerTiming.End(shared->context.Get(),shared->geometryTiming);
+            shared->geometryTiming=-1;
             if (!silhouetteInput) return;
             D3D11_TEXTURE2D_DESC desc{};
             silhouetteInput->GetDesc(&desc);
@@ -471,12 +865,14 @@ static void __stdcall BeforeUI(int event)
             silhouetteInput->GetDevice(&owner);
             if (owner.Get() != shared->source.Get() || desc.Width != shared->desc.Width || desc.Height != shared->desc.Height
                 || desc.SampleDesc.Count != 1 || !Supported(desc.Format)) return;
-            CaptureWorld(*shared, silhouetteInput.Get(), desc.Format, true);
             shared->silhouetteSerial++;
-            silhouetteCopies++;
+            shared->stencilMaskFrame=shared->layerFrame;
             return;
         }
         ComPtr<ID3D11RenderTargetView> target;
+        shared->layerTiming.Poll(shared->context.Get());
+        if(IndependentMode() && independentFireflyCopies.load()>10)atmosphereProbe.Save(shared->context.Get());
+        for(unsigned i=0;i<3;++i)layerGpuUs[i]=static_cast<long long>(1000*shared->layerTiming.milliseconds[i]);
         shared->context->OMGetRenderTargets(1, &target, nullptr);
         if (!target)
             return;
@@ -497,7 +893,24 @@ static void __stdcall BeforeUI(int event)
             return;
         CaptureWorld(*shared, buffer.Get(), td.Format);
         shared->cleanHasSilhouette = shared->silhouetteSerial != shared->usedSilhouetteSerial;
+        if(shared->cleanHasSilhouette && silhouetteInput)
+        {
+            D3D11_TEXTURE2D_DESC maskDesc{};silhouetteInput->GetDesc(&maskDesc);
+            CaptureWorld(*shared,silhouetteInput.Get(),maskDesc.Format,true);
+            silhouetteCopies++;
+        }
         shared->usedSilhouetteSerial = shared->silhouetteSerial;
+        shared->cleanHasLayers=false;
+        if(IndependentMode() && shared->cleanHasSilhouette && shared->contributions[1].ready)
+        {
+            if(!shared->independentSources)shared->independentSources=std::make_unique<IndependentSourceCapture>(shared->source.Get(),shared->context.Get(),td.Width,td.Height);
+            ID3D11Texture2D *fire=shared->independentFirefly && shared->independentFireflyFrame==shared->layerFrame
+                ?shared->independentFirefly->Image():nullptr;
+            shared->cleanHasLayers=shared->independentSources->Capture(shared->contributions[1].before.Get(),shared->cleanSilhouette.Get(),cloudInput.Get(),fire);
+            shared->cleanCloudFade=independentCloudFade.load();
+        }
+        if(IndependentMode())
+        {if(shared->cleanHasLayers)independentPacked++;else independentUnavailable++;}
         shared->cleanSerial++;
         cleanCopies++;
     }
@@ -513,6 +926,31 @@ extern "C" __declspec(dllexport) void SetFrameGenerationSilhouette(ID3D11Texture
 {
     std::lock_guard<std::mutex> lock(stateMutex);
     silhouetteInput = image;
+}
+extern "C" __declspec(dllexport) void ReadFrameGenerationStencil(long long *values,int count)
+{
+    if(!values || count<3)return;
+    values[0]=stencilAttempts;values[1]=stencilSuccesses;values[2]=stencilFailures;
+    if(count>=4)values[3]=celestialStencilFailures;
+}
+extern "C" __declspec(dllexport) void SetFrameGenerationCloudLayer(ID3D11Texture2D *image)
+{
+    std::lock_guard<std::mutex> lock(stateMutex);
+    cloudInput=image;
+    if(!image && shared) { shared->cloudView.Reset();shared->cloudSource.Reset(); }
+}
+extern "C" __declspec(dllexport) void SetFrameGenerationWaterLayer(ID3D11Texture2D *image)
+{
+    std::lock_guard<std::mutex> lock(stateMutex);
+    waterInput=image;
+    if(!image && shared) { shared->waterView.Reset();shared->waterSource.Reset(); }
+}
+extern "C" __declspec(dllexport) void ReadFrameGenerationLayers(long long *values,int count)
+{
+    if(!values || count<5)return;
+    for(unsigned i=0;i<4;++i)values[i]=layerGpuUs[i].load();
+    values[4]=fireflyPairs.load();
+    if(count>=6)values[5]=layerSourceFailures.load();
 }
 extern "C" __declspec(dllexport) void ReadFrameGenerationSilhouette(long long *values, int count)
 {
@@ -535,8 +973,47 @@ struct Presenter
     ComPtr<ID3D11Device1> device1;
     ComPtr<ID3D11DeviceContext> context;
     ComPtr<IDXGISwapChain> swap, nativeSwap;
+    UINT lastDisplayCount{};
+    bool displayCountKnown{};
     ComPtr<ID3D11Texture2D> back, input, finalImage, opened[3], openedFinal[3];
     ComPtr<ID3D11Texture2D> openedSilhouette[3], silhouetteFrame;
+    ComPtr<ID3D11Texture2D> openedLayers[3];
+    ComPtr<IDXGIKeyedMutex> layerMutexes[3];
+    ComPtr<ID3D11Texture2D> diagnosticLayers;
+    inline static unsigned independentSnapshots{};
+    void SnapshotIndependent(int index,double timestamp)
+    {
+        if(!IndependentMode() || independentSnapshots>=2 || !source->slots[index].hasLayers)return;
+        wchar_t destination[32768]{};DWORD length=GetEnvironmentVariableW(L"KOE_INDEPENDENT_SNAPSHOT",destination,32768);
+        if(!length || length>=32768)return;
+        bool fire=independentFireflyCopies.load()>10;
+        if((independentSnapshots==0 && independentPacked.load()<30) || (independentSnapshots==1 && !fire))return;
+        auto directory=std::filesystem::path(destination)/(independentSnapshots?"firefly":"initial");
+        if(std::filesystem::exists(directory))throw std::runtime_error("Independent snapshot already exists");
+        std::filesystem::create_directories(directory);auto start=Clock::now();
+        auto save=[&](ID3D11Texture2D *image,const char *name)
+        {
+            D3D11_TEXTURE2D_DESC desc{};image->GetDesc(&desc);
+            unsigned bytes=desc.Format==DXGI_FORMAT_R16G16B16A16_FLOAT?8:4;
+            desc.Usage=D3D11_USAGE_STAGING;desc.BindFlags=desc.MiscFlags=0;desc.CPUAccessFlags=D3D11_CPU_ACCESS_READ;
+            ComPtr<ID3D11Texture2D> staging;Check(device->CreateTexture2D(&desc,nullptr,&staging),"independent snapshot staging");
+            context->CopyResource(staging.Get(),image);
+            for(unsigned slice=0;slice<desc.ArraySize;slice++)
+            {
+                D3D11_MAPPED_SUBRESOURCE mapped{};Check(context->Map(staging.Get(),slice,D3D11_MAP_READ,0,&mapped),"independent snapshot map");
+                std::ofstream file(directory/(std::string(name)+"-"+std::to_string(slice)+".raw"),std::ios::binary);
+                for(unsigned y=0;y<desc.Height;y++)file.write(static_cast<char*>(mapped.pData)+y*mapped.RowPitch,desc.Width*bytes);
+                context->Unmap(staging.Get(),slice);if(!file)throw std::runtime_error("Independent snapshot write failed");
+            }
+        };
+        save(input.Get(),"world");save(finalImage.Get(),"final");save(openedLayers[index].Get(),"layers");
+        std::ofstream info(directory/"capture.json");
+        info<<"{\"width\":"<<source->desc.Width<<",\"height\":"<<source->desc.Height
+            <<",\"timestamp\":"<<timestamp<<",\"cloudFilmic\":"<<source->slots[index].cloudFilmic
+            <<",\"cloudFade\":"<<source->slots[index].cloudFade<<",\"readbackMs\":"
+            <<std::chrono::duration<double,std::milli>(Clock::now()-start).count()<<"}";
+        independentSnapshots++;
+    }
     ComPtr<ID3D11ShaderResourceView> finalViews[3], inputSrv, finalSrv;
     ComPtr<IDXGIKeyedMutex> mutexes[3];
     ComPtr<ID3D11RenderTargetView> inputView;
@@ -586,6 +1063,13 @@ struct Presenter
 #ifdef KOE_CAPTURE_AUDIT
     ComPtr<ID3D11Texture2D> auditWorld[3], auditFinal, auditGenerated, auditComposed;
     ComPtr<ID3D11Texture2D> auditSilhouette[3];
+    static constexpr unsigned DatasetFrames = 5;
+    ComPtr<ID3D11Texture2D> datasetWorld[DatasetFrames], datasetLayers[DatasetFrames];
+    double datasetTimes[DatasetFrames]{};
+    std::uint64_t datasetSerials[DatasetFrames]{};
+    unsigned datasetIndex{};
+    int datasetID = -1;
+    double datasetStart{};
     bool auditHasSilhouette[3]{};
     double auditTimes[3]{};
     std::uint64_t auditSerials[3]{};
@@ -682,6 +1166,11 @@ struct Presenter
             Check(device->CreateShaderResourceView(openedFinal[i].Get(), &srv, &finalViews[i]), "UI input SRV");
             Check(device1->OpenSharedResource1(source->slots[i].silhouetteHandle, IID_PPV_ARGS(&openedSilhouette[i])), "open silhouette");
             Check(openedSilhouette[i].As(&silhouetteMutexes[i]), "worker silhouette mutex");
+            if(source->slots[i].layerHandle)
+            {
+                Check(device1->OpenSharedResource1(source->slots[i].layerHandle,IID_PPV_ARGS(&openedLayers[i])),"open independent layer array");
+                Check(openedLayers[i].As(&layerMutexes[i]),"worker independent layer mutex");
+            }
         }
         const char *vertex = "float4 main(uint id:SV_VertexID):SV_Position{return float4(id==2?3:-1,id==1?3:-1,0,1);}";
         const char *pixel =
@@ -797,7 +1286,7 @@ float4 main(float4 position : SV_Position) : SV_Target
         }
         context->CopyResource(result.Get(), texture);
     }
-    void SavePixels(ID3D11Texture2D *texture, const char *name)
+    void SavePixels(ID3D11Texture2D *texture, const char *name, const std::filesystem::path &directory = {})
     {
         D3D11_TEXTURE2D_DESC d{};
         texture->GetDesc(&d);
@@ -810,12 +1299,46 @@ float4 main(float4 position : SV_Position) : SV_Target
         context->CopyResource(stage.Get(), texture);
         D3D11_MAPPED_SUBRESOURCE m{};
         Check(context->Map(stage.Get(), 0, D3D11_MAP_READ, 0, &m), "audit map");
-        std::ofstream stream(auditDirectory / name, std::ios::binary);
+        std::ofstream stream((directory.empty() ? auditDirectory : directory) / name, std::ios::binary);
         for (unsigned y = 0; y < d.Height; y++)
             stream.write(static_cast<const char *>(m.pData) + size_t(y) * m.RowPitch, size_t(d.Width) * 4);
         context->Unmap(stage.Get(), 0);
         if (!stream)
             throw std::runtime_error("audit write failed");
+    }
+    void CaptureDataset(bool hasLayers, double timestamp, std::uint64_t serial)
+    {
+        int request=datasetRequest.exchange(-1);
+        if(request>=0)
+        {
+            datasetID=request;datasetIndex=0;datasetStart=datasetEarliest.load();
+        }
+        if(datasetID<0 || timestamp<datasetStart || !hasLayers
+            || (datasetIndex && serial<=datasetSerials[datasetIndex-1]))return;
+        Snapshot(input.Get(),datasetWorld[datasetIndex]);
+        Snapshot(silhouetteFrame.Get(),datasetLayers[datasetIndex]);
+        datasetTimes[datasetIndex]=timestamp;datasetSerials[datasetIndex]=serial;
+        if(++datasetIndex<DatasetFrames)return;
+        auto directory=auditRoot/("case-"+std::to_string(datasetID));
+        if(!std::filesystem::create_directories(directory))throw std::runtime_error("Dataset output already exists");
+        for(unsigned i=0;i<DatasetFrames;++i)
+        {
+            SavePixels(datasetWorld[i].Get(),("world-"+std::to_string(i)+".rgba").c_str(),directory);
+            SavePixels(datasetLayers[i].Get(),("layers-"+std::to_string(i)+".rgba").c_str(),directory);
+            datasetWorld[i].Reset();datasetLayers[i].Reset();
+        }
+        {
+            std::ofstream info(directory/"capture.json.tmp");info.precision(17);
+            info<<"{\"width\":"<<source->desc.Width<<",\"height\":"<<source->desc.Height<<",\"id\":"<<datasetID
+                <<",\"frames\":"<<DatasetFrames<<",\"times\":[";
+            for(unsigned i=0;i<DatasetFrames;++i)info<<(i?",":"")<<datasetTimes[i];
+            info<<"],\"serials\":[";
+            for(unsigned i=0;i<DatasetFrames;++i)info<<(i?",":"")<<datasetSerials[i];
+            info<<"],\"scope\":\"lossless pre-UI source sequence; diagnostic readbacks, not an FPS benchmark\"}";
+            if(!info)throw std::runtime_error("Dataset metadata write failed");
+        }
+        std::filesystem::rename(directory/"capture.json.tmp",directory/"capture.json");
+        datasetComplete=datasetID;datasetID=-1;datasetBusy=false;
     }
     void SaveAudit()
     {
@@ -897,6 +1420,8 @@ float4 main(float4 position : SV_Position) : SV_Target
     }
     void Compose(ID3D11RenderTargetView *target, ID3D11ShaderResourceView *world = nullptr)
     {
+        D3D11_VIEWPORT viewport{0,0,float(source->desc.Width),float(source->desc.Height),0,1};
+        context->RSSetViewports(1,&viewport);
         context->OMSetRenderTargets(1, &target, nullptr);
         context->VSSetShader(vs.Get(), nullptr, 0);
         context->PSSetShader(uiPS.Get(), nullptr, 0);
@@ -937,6 +1462,17 @@ float4 main(float4 position : SV_Position) : SV_Target
             }
         } scope(midpoint ? 2 : 1);
         HRESULT hr = FinalPresentation::Present(swap.Get(), nativeSwap.Get(), 1, 0);
+        if(IndependentMode() && hr==S_OK)
+        {
+            DXGI_FRAME_STATISTICS statistics{};auto *chain=nativeSwap?nativeSwap.Get():swap.Get();
+            if(chain->GetFrameStatistics(&statistics)==S_OK)
+            {
+                if(displayCountKnown && statistics.PresentCount>=lastDisplayCount)
+                    observedDisplayed+=statistics.PresentCount-lastDisplayCount;
+                lastDisplayCount=statistics.PresentCount;displayCountKnown=true;displayStatisticsSamples++;
+            }
+            else{displayStatisticsFailures++;displayCountKnown=false;}
+        }
         if (nativeSwap)
             reshadeBypasses++;
         Check(hr, "generated presentation");
@@ -946,8 +1482,9 @@ float4 main(float4 position : SV_Position) : SV_Target
     {
         for (auto &frame : frames)
         {
-            if (!frame.ticket || frame.resolved || !fruc->Completed(frame.ticket)) continue;
-            bool complete = true;
+            if (!frame.ticket || frame.resolved) continue;
+            bool complete=fruc->Completed(frame.ticket);
+            if(!complete && !IndependentMode())continue;
             for (unsigned i=0;i<frame.phaseCount;++i)
             {
                 auto &phase = frame.phases[i];
@@ -955,6 +1492,7 @@ float4 main(float4 position : SV_Position) : SV_Target
                 if (!fruc->ResolveGpu(phase.ticket)) { complete = false; continue; }
                 phase.resolved = true;
                 const auto &ticket = *phase.ticket;
+                if(IndependentMode())independentParityRejected+=ticket.counts[1];
                 bool late = Seconds() > frame.deadline;
                 qualityReasons[late ? Interpolator::Late : static_cast<int>(ticket.rejection)]++;
                 decisionAgeUs = static_cast<long long>((Seconds()-frame.timestamp)*1000000);
@@ -968,11 +1506,12 @@ float4 main(float4 position : SV_Position) : SV_Target
         while (!readyFrames.empty())
         {
             auto &frame = frames[readyFrames.front()];
-            if (!frame.resolved) return;
+            if (!frame.resolved && !IndependentMode()) return;
             frame.late = Seconds() > frame.deadline;
             for (unsigned i=frame.nextPhase;i<frame.phaseCount;++i)
             {
                 auto &phase = frame.phases[i];
+                if(!phase.resolved)return;
                 const auto &ticket = *phase.ticket;
                 auto hash = (std::uint64_t(ticket.counts[8])<<32)|ticket.counts[9];
                 if (!ticket.eligible || frame.late || Seconds()>frame.deadline
@@ -984,6 +1523,11 @@ float4 main(float4 position : SV_Position) : SV_Target
                 {
                     generated++;
                     generatedPresents++;
+                    if(IndependentMode())
+                    {
+                        publishedChanged+=ticket.counts[5];publishedComposed+=ticket.counts[6];
+                        publishedPixelTotal+=std::uint64_t(source->desc.Width)*source->desc.Height;
+                    }
                     lastHashKnown = true;
                     lastPresentedHash = hash;
                     presentationClock.Presented(Seconds(),effectiveMilliFPS.load()/1000.);
@@ -991,6 +1535,7 @@ float4 main(float4 position : SV_Position) : SV_Target
                 frame.nextPhase=i+1;
                 return;
             }
+            if(!frame.resolved)return;
             if (Visible() && displaying && !frame.late)
             {
                 if(!presentationClock.Ready(Seconds()))return;
@@ -1040,13 +1585,39 @@ float4 main(float4 position : SV_Position) : SV_Target
             if (acquired == WAIT_TIMEOUT) return false;
             throw std::runtime_error("queued silhouette ownership lost");
         }
+        if(layerMutexes[index])
+        {
+            acquired=layerMutexes[index]->AcquireSync(1,0);
+            if(acquired!=S_OK)
+            {
+                Check(silhouetteMutexes[index]->ReleaseSync(1),"queued layers silhouette retry");
+                Check(finalMutexes[index]->ReleaseSync(1),"queued layers UI retry");
+                Check(mutexes[index]->ReleaseSync(1),"queued layers world retry");
+                if(acquired==WAIT_TIMEOUT)return false;
+                throw std::runtime_error("Independent layer ownership lost");
+            }
+        }
         auto begin = Clock::now();
         UpdateDisplay();
         Convert(views[index].Get(), inputView.Get());
         Convert(finalViews[index].Get(), finalView.Get());
         bool hasSilhouette = source->slots[index].hasSilhouette;
         if (hasSilhouette) context->CopyResource(silhouetteFrame.Get(), openedSilhouette[index].Get());
+        if(IndependentMode())SnapshotIndependent(index,timestamp);
         context->Flush();
+#ifdef KOE_CAPTURE_AUDIT
+        CaptureDataset(hasSilhouette,timestamp,source->slots[index].serial);
+        if(datasetMode)
+        {
+            if(layerMutexes[index])Check(layerMutexes[index]->ReleaseSync(0),"dataset independent layers release");
+            Check(silhouetteMutexes[index]->ReleaseSync(0),"dataset silhouette release");
+            Check(finalMutexes[index]->ReleaseSync(0),"dataset UI release");
+            Check(mutexes[index]->ReleaseSync(0),"dataset world release");
+            std::lock_guard<std::mutex> lock(stateMutex);
+            source->slots[index].status=0;
+            return true;
+        }
+#endif
         interval = sourceInterval;
         double pairInterval=lastTimestamp>0?timestamp-lastTimestamp:sourceInterval;
         lastTimestamp = timestamp;
@@ -1070,9 +1641,14 @@ float4 main(float4 position : SV_Position) : SV_Target
         slot->resolved = slot->late = false;
         // AI-generated comment: Two buffers cover the current GPU frame and one frame of presentation lookahead.
         slot->deadline = timestamp + interval * frames.size();
+#ifdef KOE_DIRECT_FLOW
+        if(IndependentMode())fruc->SetLayerInput(source->slots[index].hasLayers?openedLayers[index].Get():nullptr,
+            source->slots[index].cloudFilmic,source->slots[index].cloudFade);
+#endif
         slot->ticket = fruc->Submit(input.Get(), timestamp, false, true,
             hasSilhouette ? silhouetteFrame.Get() : nullptr);
         context->Flush();
+        if(layerMutexes[index])Check(layerMutexes[index]->ReleaseSync(0),"queued independent layers release");
         Check(silhouetteMutexes[index]->ReleaseSync(0), "queued silhouette release");
         Check(finalMutexes[index]->ReleaseSync(0), "queued UI release");
         Check(mutexes[index]->ReleaseSync(0), "queued world release");
@@ -1101,6 +1677,7 @@ float4 main(float4 position : SV_Position) : SV_Target
                 }
                 phase.resolved=false;
                 phase.ticket=fruc->Phase(slot->ticket,float(i+1)/float(count+1));
+                layerGpuUs[3]=static_cast<long long>(1000*fruc->ContourMilliseconds());
                 Compose(phase.target.Get());
                 fruc->CheckComposed(phase.ticket,phase.view.Get(),slot->realView.Get(),
                     i ? slot->phases[i-1].view.Get() : slot->composedView.Get());
@@ -1129,11 +1706,36 @@ float4 main(float4 position : SV_Position) : SV_Target
         Convert(finalViews[index].Get(), finalView.Get());
         bool hasSilhouette = source->slots[index].hasSilhouette;
         if (hasSilhouette) context->CopyResource(silhouetteFrame.Get(), openedSilhouette[index].Get());
+        if(layerMutexes[index])
+        {
+            if(layerMutexes[index]->AcquireSync(1,2000)!=S_OK)throw std::runtime_error("Diagnostic independent layers timeout");
+            if(source->slots[index].hasLayers)
+            {
+                if(!diagnosticLayers)
+                {
+                    D3D11_TEXTURE2D_DESC desc{};openedLayers[index]->GetDesc(&desc);desc.MiscFlags=0;
+                    Check(device->CreateTexture2D(&desc,nullptr,&diagnosticLayers),"diagnostic layer array");
+                }
+                context->CopyResource(diagnosticLayers.Get(),openedLayers[index].Get());
+            }
+            context->Flush();Check(layerMutexes[index]->ReleaseSync(0),"diagnostic independent layers release");
+#ifdef KOE_DIRECT_FLOW
+            fruc->SetLayerInput(source->slots[index].hasLayers?diagnosticLayers.Get():nullptr,
+                source->slots[index].cloudFilmic,source->slots[index].cloudFade);
+#endif
+        }
         context->Flush();
         Check(silhouetteMutexes[index]->ReleaseSync(0), "worker silhouette release");
         Check(finalMutexes[index]->ReleaseSync(0), "worker UI release");
         Check(mutexes[index]->ReleaseSync(0), "worker release");
 #ifdef KOE_CAPTURE_AUDIT
+        CaptureDataset(hasSilhouette,timestamp,serial);
+        if(datasetMode)
+        {
+            std::lock_guard<std::mutex> lock(stateMutex);
+            source->slots[index].status=0;
+            return;
+        }
         if (!auditRoot.empty() && !auditSchedule.empty() && (auditDone || auditIndex == 0) &&
             nextAudit < auditSchedule.size() && Seconds() - auditEpoch >= auditSchedule[nextAudit])
         {
@@ -1328,17 +1930,20 @@ static void Worker()
                             HRESULT world = presenter->mutexes[i]->AcquireSync(1, 0);
                             HRESULT ui = world == S_OK ? presenter->finalMutexes[i]->AcquireSync(1, 0) : WAIT_TIMEOUT;
                             HRESULT hull = ui == S_OK ? presenter->silhouetteMutexes[i]->AcquireSync(1, 0) : WAIT_TIMEOUT;
-                            if (world != S_OK || ui != S_OK || hull != S_OK)
+                            HRESULT layers=hull==S_OK && presenter->layerMutexes[i]?presenter->layerMutexes[i]->AcquireSync(1,0):hull;
+                            if (world != S_OK || ui != S_OK || hull != S_OK || layers!=S_OK)
                             {
+                                if(hull==S_OK)Check(presenter->silhouetteMutexes[i]->ReleaseSync(1),"stale silhouette retry");
                                 if (ui == S_OK) Check(presenter->finalMutexes[i]->ReleaseSync(1), "stale UI retry");
                                 if (world == S_OK) Check(presenter->mutexes[i]->ReleaseSync(1), "stale input retry");
                                 if ((world != S_OK && world != WAIT_TIMEOUT) || (ui != S_OK && ui != WAIT_TIMEOUT)
-                                    || (hull != S_OK && hull != WAIT_TIMEOUT))
+                                    || (hull != S_OK && hull != WAIT_TIMEOUT) || (layers!=S_OK && layers!=WAIT_TIMEOUT))
                                     throw std::runtime_error("stale input ownership lost");
                                 std::lock_guard<std::mutex> lock(stateMutex);
                                 current->slots[i].status = 1;
                                 continue;
                             }
+                            if(presenter->layerMutexes[i])Check(presenter->layerMutexes[i]->ReleaseSync(0),"stale independent layers release");
                             Check(presenter->silhouetteMutexes[i]->ReleaseSync(0), "stale silhouette release");
                             Check(presenter->finalMutexes[i]->ReleaseSync(0), "stale UI release");
                             Check(presenter->mutexes[i]->ReleaseSync(0), "stale input release");
@@ -1408,6 +2013,7 @@ extern "C" __declspec(dllexport) int InitializeFrameGeneration(const wchar_t *dl
             }
         }
         auditEpoch = Seconds();
+        datasetMode=GetEnvironmentVariableW(L"KOE_LAYER_DATASET_ROOT",nullptr,0)>0;
 #endif
         HMODULE self{};
         if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_PIN,
@@ -1506,6 +2112,9 @@ extern "C" __declspec(dllexport) void ReadFrameGenerationTarget(long long *value
 }
 extern "C" __declspec(dllexport) void InvalidateFrameGenerationHistory()
 {
+#ifdef KOE_CAPTURE_AUDIT
+    if(datasetMode)return;
+#endif
     std::lock_guard<std::mutex> lock(stateMutex);
     shared.reset();
     HWND window = overlayWindow.load();
@@ -1542,6 +2151,9 @@ extern "C" __declspec(dllexport) const char *GetFrameGenerationError()
 }
 extern "C" __declspec(dllexport) void StopFrameGeneration()
 {
+#ifdef KOE_CAPTURE_AUDIT
+    LayerPassAudit::Stop();
+#endif
     enabled = false;
     allowed = false;
     stopWorker = true;
@@ -1691,6 +2303,140 @@ extern "C" __declspec(dllexport) int TestFrameGenerationCapture(long long *resul
         lastError = e.what();
         return -2;
     }
+}
+#endif
+#ifdef KOE_CAPTURE_AUDIT
+extern "C" __declspec(dllexport) int TestFrameGenerationLayerPassAudit(const wchar_t *directory, long long *result)
+{
+    if(!directory || !result)return -1;
+    result[0]=result[1]=result[2]=0;
+    try
+    {
+        std::filesystem::path path(directory);
+        if(std::filesystem::exists(path / "layer-pass-states.jsonl"))return -3;
+        std::filesystem::create_directories(path);
+        auto initialized=MH_Initialize();
+        if(initialized!=MH_OK && initialized!=MH_ERROR_ALREADY_INITIALIZED)return -4;
+        ComPtr<ID3D11Device> device;ComPtr<ID3D11DeviceContext> context;
+        Check(D3D11CreateDevice(nullptr,D3D_DRIVER_TYPE_HARDWARE,nullptr,0,nullptr,0,D3D11_SDK_VERSION,
+            &device,nullptr,&context),"pass audit test device");
+        LayerPassAudit::Start(context.Get(),path,true);
+        if(LayerPassAudit::observed.load()!=context.Get())return -5;
+        D3D11_DEPTH_STENCIL_DESC stateDesc{};
+        stateDesc.DepthEnable=TRUE;stateDesc.DepthWriteMask=D3D11_DEPTH_WRITE_MASK_ALL;
+        stateDesc.DepthFunc=D3D11_COMPARISON_LESS;stateDesc.StencilEnable=TRUE;
+        stateDesc.StencilReadMask=stateDesc.StencilWriteMask=7;
+        stateDesc.FrontFace={D3D11_STENCIL_OP_KEEP,D3D11_STENCIL_OP_KEEP,D3D11_STENCIL_OP_REPLACE,D3D11_COMPARISON_ALWAYS};
+        stateDesc.BackFace=stateDesc.FrontFace;
+        ComPtr<ID3D11DepthStencilState> state;
+        Check(device->CreateDepthStencilState(&stateDesc,&state),"pass audit test state");
+        context->OMSetDepthStencilState(state.Get(),3);
+        ComPtr<ID3D11DepthStencilState> restored;UINT reference{};
+        context->OMGetDepthStencilState(&restored,&reference);
+        result[0]=restored.Get()!=state.Get() || reference!=3;
+        D3D11_TEXTURE2D_DESC desc{};desc.Width=16;desc.Height=12;
+        desc.MipLevels=desc.ArraySize=desc.SampleDesc.Count=1;desc.Format=DXGI_FORMAT_R24G8_TYPELESS;
+        desc.BindFlags=D3D11_BIND_DEPTH_STENCIL;
+        ComPtr<ID3D11Texture2D> texture;
+        Check(device->CreateTexture2D(&desc,nullptr,&texture),"pass audit test depth");
+        D3D11_DEPTH_STENCIL_VIEW_DESC viewDesc{};viewDesc.Format=DXGI_FORMAT_D24_UNORM_S8_UINT;
+        viewDesc.ViewDimension=D3D11_DSV_DIMENSION_TEXTURE2D;
+        ComPtr<ID3D11DepthStencilView> view;
+        Check(device->CreateDepthStencilView(texture.Get(),&viewDesc,&view),"pass audit test depth view");
+        context->ClearDepthStencilView(view.Get(),D3D11_CLEAR_DEPTH|D3D11_CLEAR_STENCIL,.25f,11);
+        desc.Usage=D3D11_USAGE_STAGING;desc.BindFlags=0;desc.CPUAccessFlags=D3D11_CPU_ACCESS_READ;
+        ComPtr<ID3D11Texture2D> readback;
+        Check(device->CreateTexture2D(&desc,nullptr,&readback),"pass audit test readback");
+        context->CopyResource(readback.Get(),texture.Get());
+        D3D11_MAPPED_SUBRESOURCE mapped{};
+        Check(context->Map(readback.Get(),0,D3D11_MAP_READ,0,&mapped),"pass audit test map");
+        for(unsigned y=0;y<desc.Height;++y)for(unsigned x=0;x<desc.Width;++x)
+        {
+            auto pixel=reinterpret_cast<const UINT *>(static_cast<const unsigned char *>(mapped.pData)+mapped.RowPitch*y)[x];
+            result[1]+=(pixel>>24)!=11 || std::abs(int(pixel&0xffffff)-4194304)>1;
+            result[2]++;
+        }
+        context->Unmap(readback.Get(),0);LayerPassAudit::Stop();
+        return result[0]||result[1]?2:0;
+    }
+    catch(const std::exception &error){LayerPassAudit::Stop();lastError=error.what();return -2;}
+}
+
+extern "C" __declspec(dllexport) int TestFrameGenerationLayers(long long *result)
+{
+    if(!result)return -1;
+    result[0]=result[1]=result[2]=0;
+    struct RestoreInputs
+    {
+        ComPtr<ID3D11Texture2D> cloud=cloudInput,water=waterInput;
+        ~RestoreInputs(){cloudInput=cloud;waterInput=water;}
+    } restoreInputs;
+    try
+    {
+        Shared value;
+        Check(D3D11CreateDevice(nullptr,D3D_DRIVER_TYPE_HARDWARE,nullptr,0,nullptr,0,D3D11_SDK_VERSION,
+            &value.source,nullptr,&value.context),"layer test device");
+        constexpr unsigned w=16,h=12;
+        D3D11_TEXTURE2D_DESC desc{};desc.Width=w;desc.Height=h;desc.MipLevels=desc.ArraySize=desc.SampleDesc.Count=1;
+        desc.Format=DXGI_FORMAT_R8G8B8A8_UNORM;desc.BindFlags=D3D11_BIND_SHADER_RESOURCE|D3D11_BIND_RENDER_TARGET;
+        value.desc=desc;
+        Check(value.source->CreateTexture2D(&desc,nullptr,&value.cleanWorld),"layer test world");
+        Check(value.source->CreateTexture2D(&desc,nullptr,&value.cleanSilhouette),"layer test output");
+        Check(value.source->CreateRenderTargetView(value.cleanSilhouette.Get(),nullptr,&value.silhouetteTarget),"layer test output view");
+        std::vector<unsigned char> pixels(w*h*4,80),layers(w*h*4,0),clouds(w*h*4,255);
+        std::vector<float> water(w*h,0);
+        for(unsigned y=0;y<h;++y)for(unsigned x=0;x<w;++x)
+        {
+            auto p=(y*w+x)*4;pixels[p+3]=255;
+            layers[p]=2;layers[p+1]=9;layers[p+3]=128;
+            if(x<3 && y<4)clouds[p+3]=128;
+            if(x>=13 && y>=8)water[y*w+x]=.5f;
+        }
+        D3D11_SUBRESOURCE_DATA initial{pixels.data(),w*4,0};
+        ComPtr<ID3D11Texture2D> color,mask;
+        Check(value.source->CreateTexture2D(&desc,&initial,&color),"layer test color");
+        initial.pSysMem=layers.data();Check(value.source->CreateTexture2D(&desc,&initial,&mask),"layer test labels");
+        initial.pSysMem=clouds.data();Check(value.source->CreateTexture2D(&desc,&initial,&cloudInput),"layer test cloud");
+        auto waterDesc=desc;waterDesc.Format=DXGI_FORMAT_R32_FLOAT;
+        initial.pSysMem=water.data();Check(value.source->CreateTexture2D(&waterDesc,&initial,&waterInput),"layer test water");
+        ComPtr<ID3D11RenderTargetView> originalTarget;
+        Check(value.source->CreateRenderTargetView(color.Get(),nullptr,&originalTarget),"layer test original target");
+        auto *rt=originalTarget.Get();value.context->OMSetRenderTargets(1,&rt,nullptr);
+        for(unsigned index=0;index<2;++index)
+        {
+            CaptureContribution(value,index,false);
+            unsigned x0=index?9:4,x1=index?12:8,y0=index?2:3,y1=index?5:9;
+            std::vector<unsigned char> change((x1-x0)*(y1-y0)*4,160);
+            for(unsigned i=3;i<change.size();i+=4)change[i]=255;
+            D3D11_BOX box{x0,y0,0,x1,y1,1};
+            value.context->UpdateSubresource(color.Get(),0,&box,change.data(),(x1-x0)*4,0);
+            CaptureContribution(value,index,true);
+        }
+        CaptureWorld(value,mask.Get(),desc.Format,true);
+        ComPtr<ID3D11RenderTargetView> restored;
+        value.context->OMGetRenderTargets(1,&restored,nullptr);
+        result[1]=restored.Get()!=originalTarget.Get();
+        desc.Usage=D3D11_USAGE_STAGING;desc.BindFlags=0;desc.CPUAccessFlags=D3D11_CPU_ACCESS_READ;
+        ComPtr<ID3D11Texture2D> read;
+        Check(value.source->CreateTexture2D(&desc,nullptr,&read),"layer test readback");
+        value.context->CopyResource(read.Get(),value.cleanSilhouette.Get());
+        D3D11_MAPPED_SUBRESOURCE mapped{};Check(value.context->Map(read.Get(),0,D3D11_MAP_READ,0,&mapped),"layer test map");
+        for(unsigned y=0;y<h;++y)for(unsigned x=0;x<w;++x)
+        {
+            unsigned rawY=h-1-y;
+            bool ocean=x>=13&&rawY>=8;
+            unsigned flags=128;
+            if(x>=4&&x<8&&rawY>=3&&rawY<9)flags|=1;
+            if(x<3&&rawY<4)flags|=2;
+            if(x>=9&&x<12&&rawY>=2&&rawY<5)flags|=4;
+            unsigned expected[]={ocean?3u:2u,ocean?0u:9u,0,flags};
+            auto actual=static_cast<unsigned char *>(mapped.pData)+y*mapped.RowPitch+x*4;
+            for(unsigned c=0;c<4;++c){result[0]+=actual[c]!=expected[c];result[2]++;}
+        }
+        value.context->Unmap(read.Get(),0);
+        return result[0]||result[1]?2:0;
+    }
+    catch(const std::exception &error){lastError=error.what();return -2;}
 }
 #endif
 // AI-generated comment: Module and Present trampoline remain loaded until process exit.

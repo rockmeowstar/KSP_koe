@@ -167,6 +167,55 @@ RWStructuredBuffer<float4> samples:register(u0);
         Require(std::abs(actual[8]-2)<.0001f,"Hull motion blended with background motion");
         Require(std::abs(actual[12]+3)<.0001f,"Background motion blended with hull motion");
     }
+    static void SceneBoundaries(OpticalD3D11 &value, OpticalD3D11::Ticket &ticket)
+    {
+        Require(value.Wait(), "Scene boundary test overlaps GPU work");
+        std::vector<unsigned char> pixels(value.width*value.height*4,80);
+        std::vector<unsigned char> labels(pixels.size(),0);
+        for(unsigned y=0;y<value.height;++y)
+            for(unsigned x=0;x<value.width;++x)
+            {
+                auto offset=(y*value.width+x)*4;
+                pixels[offset+3]=255;
+                unsigned section=x/(value.width/8);
+                labels[offset]=static_cast<unsigned char>(section+1);
+                labels[offset+1]=17;
+                labels[offset+2]=23;
+                labels[offset+3]=y<value.height/4?128:255;
+                if(y>=value.height/2)pixels[offset]=pixels[offset+1]=pixels[offset+2]=160;
+            }
+        unsigned gw=(value.width+3)/4,gh=(value.height+3)/4;
+        std::vector<short> vectors(gw*gh*2,0);
+        for(unsigned i=0;i<2;++i)
+        {
+            value.context->UpdateSubresource(value.inputs[i].Get(),0,nullptr,pixels.data(),value.width*4,0);
+            value.context->UpdateSubresource(value.silhouettes[i].Get(),0,nullptr,labels.data(),value.width*4,0);
+            value.context->UpdateSubresource(value.flow[i].Get(),0,nullptr,vectors.data(),gw*4,0);
+            value.silhouetteValid[i]=true;
+        }
+        value.SetPhase(.5f);
+        value.contourSubmission=0;
+        value.BuildContours(ticket);
+        auto desc=D3D11_TEXTURE2D_DESC{};
+        value.contours[0]->GetDesc(&desc);
+        desc.Usage=D3D11_USAGE_STAGING;desc.BindFlags=0;desc.CPUAccessFlags=D3D11_CPU_ACCESS_READ;
+        ComPtr<ID3D11Texture2D> read;
+        Check(value.device->CreateTexture2D(&desc,nullptr,&read));
+        for(unsigned frame=0;frame<2;++frame)
+        {
+            value.context->CopyResource(read.Get(),value.contours[frame].Get());
+            D3D11_MAPPED_SUBRESOURCE mapped{};Check(value.context->Map(read.Get(),0,D3D11_MAP_READ,0,&mapped));
+            auto at=[&](unsigned x,unsigned y){return static_cast<unsigned char *>(mapped.pData)[y*mapped.RowPitch+x];};
+            for(unsigned section=1;section<8;++section)
+                Require(!(at(section*(value.width/8)-1,3)&1),"Different scene IDs share a horizontal link");
+            Require(!(at(3,value.height/2-1)&2),"A visible contrast boundary remained connected");
+            Require(!(at(3,value.height/4-1)&2),"Different effect layers remained connected despite identical RGB IDs");
+            Require((at(3,3)&3)==3,"An object interior was incorrectly disconnected");
+            value.context->Unmap(read.Get(),0);
+        }
+        value.silhouetteValid[0]=value.silhouetteValid[1]=false;
+        value.contourSubmission=0;
+    }
     static void LinearMotion(OpticalD3D11 &value, OpticalD3D11::Ticket &source)
     {
         Require(value.Wait(),"Temporal fixture overwrote unfinished work");
@@ -699,6 +748,7 @@ int main(int argc, char **argv)
         Require(unmaskedChanged,"Missing silhouette left the old class disagreement active");
         ConfidenceGateFixture::Silhouette(backend);
         ConfidenceGateFixture::SilhouetteSamples(backend,*missingMask);
+        ConfidenceGateFixture::SceneBoundaries(backend,*missingMask);
         auto temporalSource=backend.Submit(input.Get(),1.92,false,true);
         ConfidenceGateFixture::LinearMotion(backend,*temporalSource);
         Require(backend.PrepareFlow(temporalSource),"Prepared source lost its optical flow");

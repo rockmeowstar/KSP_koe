@@ -1,6 +1,8 @@
 #include "OpticalD3D11.h"
 #include "ConfidenceGate.h"
 #include "TargetFrameRate.h"
+#include "SceneContours.h"
+#include "IndependentLayers.h"
 #include <d3dcompiler.h>
 #include <chrono>
 #include <cmath>
@@ -40,7 +42,9 @@ OpticalD3D11::OpticalD3D11(ID3D11Device *source, unsigned w, unsigned h, const s
         if (!create)
             throw std::runtime_error("Optical Flow D3D11 export missing");
         OF(create(NV_OF_API_VERSION, &api), "flow API");
-        OF(api.nvCreateOpticalFlowD3D11(device.Get(), context.Get(), &session), "flow session");
+        char layerMode[8]{};
+        bool independentMode=GetEnvironmentVariableA("KOE_INDEPENDENT_LAYERS",layerMode,8)==1 && layerMode[0]=='1';
+        if(!independentMode)OF(api.nvCreateOpticalFlowD3D11(device.Get(), context.Get(), &session), "flow session");
         NV_OF_INIT_PARAMS params{};
         params.width = w;
         params.height = h;
@@ -49,7 +53,7 @@ OpticalD3D11::OpticalD3D11(ID3D11Device *source, unsigned w, unsigned h, const s
         params.perfLevel = performance;
         params.predDirection = NV_OF_PRED_DIRECTION_BOTH;
         params.inputBufferFormat = NV_OF_BUFFER_FORMAT_ABGR8;
-        OF(api.nvOFInit(session, &params), "flow init");
+        if(session)OF(api.nvOFInit(session, &params), "flow init");
         completionEvent = CreateEventW(nullptr, FALSE, FALSE, nullptr);
         if (!completionEvent)
             throw std::runtime_error("flow completion event");
@@ -70,13 +74,18 @@ OpticalD3D11::OpticalD3D11(ID3D11Device *source, unsigned w, unsigned h, const s
         for (int i = 0; i < 2; i++)
         {
             HR(device->CreateTexture2D(&td, nullptr, &inputs[i]), "flow BGRA image");
-            OF(api.nvOFRegisterResourceD3D11(session, inputs[i].Get(), &inputHandles[i]), "register image");
+            if(session)OF(api.nvOFRegisterResourceD3D11(session, inputs[i].Get(), &inputHandles[i]), "register image");
             HR(device->CreateShaderResourceView(inputs[i].Get(), nullptr, &imageViews[i]), "image SRV");
             HR(device->CreateRenderTargetView(inputs[i].Get(), nullptr, &inputTargets[i]), "image RTV");
             auto maskDesc = td;
             maskDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
             HR(device->CreateTexture2D(&maskDesc, nullptr, &silhouettes[i]), "vessel silhouette history");
             HR(device->CreateShaderResourceView(silhouettes[i].Get(), nullptr, &silhouetteViews[i]), "silhouette SRV");
+            maskDesc.Format = DXGI_FORMAT_R8_UINT;
+            maskDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS;
+            HR(device->CreateTexture2D(&maskDesc, nullptr, &contours[i]), "scene contour links");
+            HR(device->CreateShaderResourceView(contours[i].Get(), nullptr, &contourViews[i]), "contour SRV");
+            HR(device->CreateUnorderedAccessView(contours[i].Get(), nullptr, &contourTargets[i]), "contour UAV");
         }
         td.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET | D3D11_BIND_UNORDERED_ACCESS;
         td.Width = (w + 3) / 4;
@@ -85,7 +94,7 @@ OpticalD3D11::OpticalD3D11(ID3D11Device *source, unsigned w, unsigned h, const s
         for (int i = 0; i < 2; i++)
         {
             HR(device->CreateTexture2D(&td, nullptr, &flow[i]), "flow vectors");
-            OF(api.nvOFRegisterResourceD3D11(session, flow[i].Get(), &flowHandles[i]), "register vectors");
+            if(session)OF(api.nvOFRegisterResourceD3D11(session, flow[i].Get(), &flowHandles[i]), "register vectors");
             HR(device->CreateShaderResourceView(flow[i].Get(), nullptr, &flowViews[i]), "vectors SRV");
         }
         const char *vertex = "float4 main(uint id:SV_VertexID):SV_Position{return float4(id==2?3:-1,id==1?3:-1,0,1);}";
@@ -99,6 +108,8 @@ SamplerState linearClamp : register(s0);
 Texture2D<uint> confidenceMask : register(t4);
 Texture2D<float4> beforeSilhouette : register(t5);
 Texture2D<float4> afterSilhouette : register(t6);
+Texture2D<uint> beforeContours : register(t7);
+Texture2D<uint> afterContours : register(t8);
 #endif
 cbuffer Dimensions : register(b0)
 {
@@ -136,14 +147,14 @@ float2 flowAt(float2 pixelPosition, bool backward)
     {
         int2 last = int2(size) - 1;
         int2 center = clamp(int2(floor(pixelPosition + .5)), 0, last);
-        bool hull = (backward ? afterSilhouette.Load(int3(center, 0)).r : beforeSilhouette.Load(int3(center, 0)).r) > .5;
+        float4 layer = round(255 * (backward ? afterSilhouette.Load(int3(center, 0)) : beforeSilhouette.Load(int3(center, 0))));
         int2 taps[4] = {a, int2(b.x,a.y), int2(a.x,b.y), b};
         float4 weights = float4((1-f.x)*(1-f.y), f.x*(1-f.y), (1-f.x)*f.y, f.x*f.y);
         [unroll] for (int i=0; i<4; ++i)
         {
             int2 sample = clamp(int2(float2(taps[i])*4+1.5), 0, last);
-            bool sampleHull = (backward ? afterSilhouette.Load(int3(sample,0)).r : beforeSilhouette.Load(int3(sample,0)).r) > .5;
-            if (sampleHull != hull) weights[i] = 0;
+            float4 sampleLayer = round(255 * (backward ? afterSilhouette.Load(int3(sample,0)) : beforeSilhouette.Load(int3(sample,0))));
+            if (any(sampleLayer != layer)) weights[i] = 0;
         }
         float total = dot(weights, 1);
         return total > 0 ? (p00*weights.x+p10*weights.y+p01*weights.z+p11*weights.w)/(32*total) : float2(0,0);
@@ -175,6 +186,44 @@ bool sampleHullColor(float2 p, bool backward, bool hull, out float4 color)
     if(total<=0)return false;
     color/=total;
     return true;
+}
+uint layerAt(int2 p, bool backward)
+{
+    if (!silhouetteEnabled) return 0;
+    float4 value = backward ? afterSilhouette.Load(int3(p,0)) : beforeSilhouette.Load(int3(p,0));
+    uint4 bytes = uint4(round(saturate(value)*255));
+    return bytes.x | (bytes.y << 8) | (bytes.z << 16) | (bytes.w << 24);
+}
+bool connected(int2 a, int2 b, bool backward)
+{
+    if (any(a < 0) || any(b < 0) || any(a >= int2(size)) || any(b >= int2(size))) return false;
+    int2 base = min(a,b);
+    uint bits = backward ? afterContours.Load(int3(base,0)) : beforeContours.Load(int3(base,0));
+    return (bits & (a.x != b.x ? 1 : 2)) != 0;
+}
+bool sampleLayerColor(float2 p, bool backward, out float4 color)
+{
+    int2 base = int2(floor(p)), anchor = int2(floor(p+.5));
+    if (any(anchor < 0) || any(anchor >= int2(size))) { color=0; return false; }
+    uint layer = layerAt(anchor,backward);
+    float2 f=frac(p);
+    float4 weights=float4((1-f.x)*(1-f.y),f.x*(1-f.y),(1-f.x)*f.y,f.x*f.y);
+    int2 offsets[4]={int2(0,0),int2(1,0),int2(0,1),int2(1,1)};
+    color=0;float total=0;
+    [unroll] for(int i=0;i<4;++i)
+    {
+        int2 tap=base+offsets[i];
+        if(any(tap<0)||any(tap>=int2(size))||layerAt(tap,backward)!=layer)continue;
+        int2 middle=int2(anchor.x,tap.y);
+        bool reachable=all(tap==anchor)
+            || (tap.x==anchor.x || tap.y==anchor.y ? connected(anchor,tap,backward)
+                : connected(anchor,middle,backward)&&connected(middle,tap,backward));
+        if(!reachable)continue;
+        color+=weights[i]*(backward?afterImage.Load(int3(tap,0)):beforeImage.Load(int3(tap,0)));
+        total+=weights[i];
+    }
+    if(total<=0)return false;
+    color/=total;return true;
 }
 #endif
 float4 warpPixel(float4 position)
@@ -224,12 +273,10 @@ float4 warpPixel(float4 position)
     float4 a = beforeImage.SampleLevel(linearClamp, (p + 0.5) / size, 0),
            b = afterImage.SampleLevel(linearClamp, (q + 0.5) / size, 0);
 #if KOE_LOCAL_MASK
-    if (silhouetteEnabled)
-    {
-        bool hull = hullAt(p, false);
-        if (hull != hullAt(q, true) || !sampleHullColor(p, false, hull, a) || !sampleHullColor(q, true, hull, b))
-            return currentCenter;
-    }
+    int2 pa=int2(floor(p+.5)), qa=int2(floor(q+.5));
+    if(any(pa<0)||any(qa<0)||any(pa>=int2(size))||any(qa>=int2(size)))return currentCenter;
+    if(layerAt(pa,false)!=layerAt(qa,true)
+        || !sampleLayerColor(p,false,a) || !sampleLayerColor(q,true,b))return currentCenter;
 #endif
 #if KOE_CONSERVATIVE_FLOW
     float4 previousCenter = beforeImage.SampleLevel(linearClamp, position.xy / size, 0);
@@ -291,6 +338,19 @@ float4 main(float4 position : SV_Position) : SV_Target { return warpPixel(positi
 #endif
 )HLSL";
         ComPtr<ID3DBlob> blob, errors;
+        HR(D3DCompile(SceneContours::Shader, strlen(SceneContours::Shader), nullptr, nullptr, nullptr,
+            "main", "cs_5_0", D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &blob, &errors), "scene contours compile");
+        HR(device->CreateComputeShader(blob->GetBufferPointer(), blob->GetBufferSize(), nullptr, &contourShader),
+            "scene contours shader");
+        for (auto &timing : contourTimings)
+        {
+            D3D11_QUERY_DESC query{D3D11_QUERY_TIMESTAMP_DISJOINT, 0};
+            HR(device->CreateQuery(&query, &timing.frequency), "contour clock");
+            query.Query = D3D11_QUERY_TIMESTAMP;
+            HR(device->CreateQuery(&query, &timing.begin), "contour begin");
+            HR(device->CreateQuery(&query, &timing.end), "contour end");
+        }
+        blob.Reset(); errors.Reset();
         HR(D3DCompile(vertex, strlen(vertex), nullptr, nullptr, nullptr, "main", "vs_5_0",
                       D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &blob, &errors),
            "warp VS");
@@ -465,6 +525,7 @@ OpticalD3D11::~OpticalD3D11()
 }
 void OpticalD3D11::Cleanup()
 {
+    if(independent){Wait();independent.reset();}
     if (session)
     {
         Wait();
@@ -588,6 +649,17 @@ std::shared_ptr<OpticalD3D11::Ticket> OpticalD3D11::Submit(ID3D11Texture2D *curr
         context->CopyResource(silhouettes[next].Get(), silhouette);
         silhouetteValid[next] = true;
     }
+    if(!independent)
+    {
+        char value[8]{};
+        if(GetEnvironmentVariableA("KOE_INDEPENDENT_LAYERS",value,8)==1 && value[0]=='1')
+            independent=std::make_unique<IndependentLayers>(device.Get(),width,height);
+    }
+    if(independent)
+    {
+        independent->Submit(next,incomingLayers.Get(),incomingFilmic,incomingFade);
+        incomingLayers.Reset();
+    }
     SetPhase(.5f);
     auto ticket = std::make_shared<Ticket>();
     ticket->owner = this;
@@ -647,6 +719,8 @@ bool OpticalD3D11::PrepareFlow(const std::shared_ptr<Ticket> &source)
     if (!source || source->owner != this || source->serial != submission)
         throw std::invalid_argument("Expired interpolation source");
     if (source->rejection == NoHistory) return false;
+    if(independent && !independent->Valid(source->before,source->after))
+    { source->rejection=NoHistory;return false; }
     if (!source->flowEstimated) EstimateFlow(*source);
     return true;
 }
@@ -669,14 +743,26 @@ std::shared_ptr<OpticalD3D11::Ticket> OpticalD3D11::Phase(const std::shared_ptr<
     ticket->before = source->before;
     ticket->after = source->after;
     ticket->gpuConditional = true;
-    Analyze(*ticket);
-    QueueMaskedWarp(*ticket);
+    if(independent)
+    {
+        AllocateReadback(*ticket);
+        independent->Generate(ticket->before,ticket->after,fraction,imageViews[ticket->before].Get(),
+            imageViews[ticket->after].Get(),outputTarget.Get(),decisionView.Get());
+        context->CopyResource(ticket->decision.Get(),decisionBuffer.Get());
+        ticket->generationQueued=true;
+    }
+    else
+    {
+        Analyze(*ticket);
+        QueueMaskedWarp(*ticket);
+    }
     Signal(*ticket);
     return ticket;
 }
 void OpticalD3D11::EstimateFlow(Ticket &ticket)
 {
     ticket.flowEstimated = true;
+    if(independent){independent->Estimate(ticket.before,ticket.after);return;}
     NV_OF_EXECUTE_INPUT_PARAMS in{};
     NV_OF_EXECUTE_OUTPUT_PARAMS out{};
     in.inputFrame = inputHandles[ticket.before];
@@ -706,6 +792,12 @@ void OpticalD3D11::Analyze(Ticket &ticket, bool sourceOnly)
     context->CSSetShaderResources(0, 4, empty);
     context->CSSetUnorderedAccessViews(0, 2, targets, nullptr);
     context->CSSetShader(nullptr, nullptr, 0);
+    AllocateReadback(ticket,sourceOnly);
+    if (!ticket.gpuConditional)
+        context->CopyResource(ticket.decision.Get(), decisionBuffer.Get());
+}
+void OpticalD3D11::AllocateReadback(Ticket &ticket,bool sourceOnly)
+{
     D3D11_BUFFER_DESC read{};
     read.ByteWidth = 48;
     read.Usage = D3D11_USAGE_STAGING;
@@ -726,10 +818,12 @@ void OpticalD3D11::Analyze(Ticket &ticket, bool sourceOnly)
             readbacks.push_back(ticket.readback);
     }
     ticket.decision = ticket.readback->buffer;
-    if (!ticket.gpuConditional)
-        context->CopyResource(ticket.decision.Get(), decisionBuffer.Get());
     ticket.analysisPending = true;
     ticket.preflightPending = sourceOnly;
+}
+void OpticalD3D11::SetLayerInput(ID3D11Texture2D *layers,bool filmic,float cloudFade)
+{
+    incomingLayers=layers;incomingFilmic=filmic;incomingFade=cloudFade;
 }
 void OpticalD3D11::ReleaseDecision(Ticket &ticket)
 {
@@ -743,6 +837,7 @@ void OpticalD3D11::QueueMaskedWarp(Ticket &ticket)
     if (phasesThisSubmission >= TargetFrameRate::MaxAdditionalFrames)
         throw std::length_error("At most three extra frames per source pair");
     ++phasesThisSubmission;
+    BuildContours(ticket);
     CopyImage(imageViews[ticket.after].Get(), outputView.Get());
     auto *cb = constants.Get();
     auto *counts = decisionSrv.Get();
@@ -758,21 +853,70 @@ void OpticalD3D11::QueueMaskedWarp(Ticket &ticket)
     context->CSSetUnorderedAccessViews(0, 1, &arguments, nullptr);
     ID3D11ShaderResourceView *images[] = {imageViews[ticket.before].Get(), imageViews[ticket.after].Get(),
                                         flowViews[0].Get(), flowViews[1].Get(), maskView.Get(),
-                                        silhouetteViews[ticket.before].Get(), silhouetteViews[ticket.after].Get()};
+                                        silhouetteViews[ticket.before].Get(), silhouetteViews[ticket.after].Get(),
+                                        contourViews[0].Get(), contourViews[1].Get()};
     ID3D11UnorderedAccessView *targets[] = {outputTarget.Get(), decisionView.Get()};
     auto *state = sampler.Get();
     context->CSSetShader(maskedWarp.Get(), nullptr, 0);
-    context->CSSetShaderResources(0, 7, images);
+    context->CSSetShaderResources(0, 9, images);
     context->CSSetSamplers(0, 1, &state);
     context->CSSetUnorderedAccessViews(0, 2, targets, nullptr);
     context->DispatchIndirect(dispatchArguments.Get(), 0);
-    ID3D11ShaderResourceView *empty[7]{};
+    ID3D11ShaderResourceView *empty[9]{};
     targets[0] = targets[1] = nullptr;
-    context->CSSetShaderResources(0, 7, empty);
+    context->CSSetShaderResources(0, 9, empty);
     context->CSSetUnorderedAccessViews(0, 2, targets, nullptr);
     context->CSSetShader(nullptr, nullptr, 0);
     context->CopyResource(ticket.decision.Get(), decisionBuffer.Get());
     ticket.generationQueued = true;
+}
+void OpticalD3D11::BuildContours(Ticket &ticket)
+{
+    if (contourSubmission == ticket.serial) return;
+    ContourTiming *measurement = nullptr;
+    for (auto &timing : contourTimings)
+    {
+        if (timing.pending)
+        {
+            D3D11_QUERY_DATA_TIMESTAMP_DISJOINT clock{};
+            UINT64 begin{}, end{};
+            if (context->GetData(timing.frequency.Get(), &clock, sizeof(clock), D3D11_ASYNC_GETDATA_DONOTFLUSH) == S_OK
+                && context->GetData(timing.begin.Get(), &begin, sizeof(begin), D3D11_ASYNC_GETDATA_DONOTFLUSH) == S_OK
+                && context->GetData(timing.end.Get(), &end, sizeof(end), D3D11_ASYNC_GETDATA_DONOTFLUSH) == S_OK)
+            {
+                if (!clock.Disjoint && clock.Frequency && end >= begin)
+                    contourMilliseconds = 1000.0 * double(end - begin) / double(clock.Frequency);
+                timing.pending = false;
+            }
+        }
+        if (!timing.pending && !measurement) measurement = &timing;
+    }
+    if (measurement)
+    {
+        context->Begin(measurement->frequency.Get());
+        context->End(measurement->begin.Get());
+    }
+    ID3D11ShaderResourceView *views[] = {imageViews[ticket.before].Get(), imageViews[ticket.after].Get(),
+        silhouetteViews[ticket.before].Get(), silhouetteViews[ticket.after].Get(), flowViews[0].Get(), flowViews[1].Get()};
+    ID3D11UnorderedAccessView *targets[] = {contourTargets[0].Get(), contourTargets[1].Get()};
+    auto *parameters = constants.Get();
+    context->CSSetShader(contourShader.Get(), nullptr, 0);
+    context->CSSetConstantBuffers(0, 1, &parameters);
+    context->CSSetShaderResources(0, 6, views);
+    context->CSSetUnorderedAccessViews(0, 2, targets, nullptr);
+    context->Dispatch((width + 7) / 8, (height + 7) / 8, 1);
+    for (auto &view : views) view = nullptr;
+    targets[0] = targets[1] = nullptr;
+    context->CSSetShaderResources(0, 6, views);
+    context->CSSetUnorderedAccessViews(0, 2, targets, nullptr);
+    context->CSSetShader(nullptr, nullptr, 0);
+    if (measurement)
+    {
+        context->End(measurement->end.Get());
+        context->End(measurement->frequency.Get());
+        measurement->pending = true;
+    }
+    contourSubmission = ticket.serial;
 }
 void OpticalD3D11::Seal(const std::shared_ptr<Ticket> &ticket)
 {
