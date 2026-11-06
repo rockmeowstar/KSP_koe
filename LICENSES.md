@@ -30,6 +30,7 @@ EVE ShaderCorrectionGuards - MIT (MinHook/HDE: BSD-2-Clause)
 Firefly IdleFix - MIT
 Parallax Continued MenuSkyboxFix - MIT
 MinHook and HDE - BSD-2-Clause
+DXBC container hashing (Microsoft DirectX Shader Compiler) - University of Illinois/NCSA Open Source License
 NVIDIA Optical Flow interface headers - MIT
 ReShade API headers - MIT (BSD-3-Clause OR MIT; MIT option selected)
 External ReShade runtime - upstream terms (not redistributed)

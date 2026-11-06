@@ -54,11 +54,15 @@ namespace KoeFrameGeneration
         readonly ScattererCameraLayers scattererCameras=new ScattererCameraLayers();
         readonly IndependentWaterfallPass independentWaterfall=new IndependentWaterfallPass();
         readonly bool independentLayers = Environment.GetEnvironmentVariable("KOE_INDEPENDENT_LAYERS")=="1";
+        readonly bool singlePassLayers=Environment.GetEnvironmentVariable("KOE_INDEPENDENT_MRT")=="1";
+        Read ReadFrameGenerationMrt;
+        readonly long[] mrtStats=new long[4];
         readonly EveCloudLayer eveCloudLayer = new EveCloudLayer();
         readonly AtmosphereSourceProbe atmosphereProbe=new AtmosphereSourceProbe();
         AtmosphereSourceProbe.Send SendAtmosphereProbe;
         readonly OceanLayer oceanLayer = new OceanLayer();
         readonly Dictionary<Camera, CommandBuffer> layerBegins = new Dictionary<Camera, CommandBuffer>();
+        readonly Dictionary<Camera, CommandBuffer> earlyLayerFrames=new Dictionary<Camera, CommandBuffer>();
         readonly Dictionary<Camera, CommandBuffer> layerEnds = new Dictionary<Camera, CommandBuffer>();
         readonly Dictionary<Camera, CommandBuffer> stencilBegins = new Dictionary<Camera, CommandBuffer>();
         readonly Dictionary<Camera, CommandBuffer> stencilCaptures = new Dictionary<Camera, CommandBuffer>();
@@ -197,6 +201,7 @@ namespace KoeFrameGeneration
                     SetFrameGenerationCloudFade=Function<Scalar>(module,"SetFrameGenerationCloudFade");
                     ReadFrameGenerationIndependent=Function<Read>(module,"ReadFrameGenerationIndependent");
                     CanFrameGenerationIndependentCapture=Function<Integer>(module,"CanFrameGenerationIndependentCapture");
+                    if(singlePassLayers)ReadFrameGenerationMrt=Function<Read>(module,"ReadFrameGenerationMrt");
                     SendAtmosphereProbe=Function<AtmosphereSourceProbe.Send>(module,"SetFrameGenerationAtmosphereProbe");
                 }
                 SetFrameGenerationWaterLayer = Function<Texture>(module, "SetFrameGenerationWaterLayer");
@@ -273,7 +278,7 @@ namespace KoeFrameGeneration
             BeginLayerFrame();
             long begin = System.Diagnostics.Stopwatch.GetTimestamp();
             try { eveCloudLayer.Observe(camera); oceanLayer.Observe(camera); SendCloudLayer();
-                if(independentLayers && CanFrameGenerationIndependentCapture()!=0)
+                if(independentLayers && !singlePassLayers && CanFrameGenerationIndependentCapture()!=0)
                     independentWaterfall.Prepare(camera,renderEvent);
                 if(SendAtmosphereProbe!=null)atmosphereProbe.Observe(camera,SendAtmosphereProbe); }
             finally { layerCpuMs += 1000.0 * (System.Diagnostics.Stopwatch.GetTimestamp()-begin) / System.Diagnostics.Stopwatch.Frequency; }
@@ -363,7 +368,7 @@ namespace KoeFrameGeneration
             if (!on || !silhouette.Prepare(camera)) return;
             if(independentLayers)
             {
-                if(CanFrameGenerationIndependentCapture()!=0)independentEffects.Prepare(camera,renderEvent);
+                if(!singlePassLayers && CanFrameGenerationIndependentCapture()!=0)independentEffects.Prepare(camera,renderEvent);
                 else independentEffects.Dispose();
             }
             else effectLayers.Prepare(camera, renderEvent);
@@ -373,7 +378,7 @@ namespace KoeFrameGeneration
             {
                 var beginCommands = new CommandBuffer { name = "KOE layer frame identity" };
                 layerBegins.Add(camera, beginCommands);
-                camera.AddCommandBuffer(CameraEvent.BeforeForwardAlpha, beginCommands);
+                camera.AddCommandBuffer(singlePassLayers?CameraEvent.AfterForwardOpaque:CameraEvent.BeforeForwardAlpha, beginCommands);
                 var endCommands = new CommandBuffer { name = "KOE translucent coverage end" };
                 endCommands.IssuePluginEvent(renderEvent, 10);
                 layerEnds.Add(camera, endCommands);
@@ -388,13 +393,23 @@ namespace KoeFrameGeneration
                 || camera.actualRenderingPath==RenderingPath.DeferredShading
                 || (camera.cullingMask&silhouette.CelestialLayers)!=0;
             frameStart.Clear();
+            if(singlePassLayers)
+            {
+                CommandBuffer early;
+                if(!earlyLayerFrames.TryGetValue(camera,out early))
+                {
+                    early=new CommandBuffer{name="KOE early layer frame identity"};earlyLayerFrames.Add(camera,early);
+                    camera.AddCommandBuffer(CameraEvent.BeforeForwardOpaque,early);
+                }
+                early.Clear();early.IssuePluginEvent(renderEvent,6|((Time.frameCount&0x07ffffff)<<3));
+            }
             frameStart.IssuePluginEvent(renderEvent, 6 | ((Time.frameCount & 0x07ffffff) << 3));
             bool localStencil=stencilScene && camera.actualRenderingPath==RenderingPath.DeferredShading
                 && (independentLayers || !HighLogic.LoadedSceneIsFlight || camera==flightCamera);
             layerEnds[camera].Clear();
             if(alphaSource)
             {
-                frameStart.SetRenderTarget(BuiltinRenderTextureType.CameraTarget);
+                if(!singlePassLayers)frameStart.SetRenderTarget(BuiltinRenderTextureType.CameraTarget);
                 int captureEvent=independentLayers&&!localStencil?20:9;
                 if(independentLayers && scattererCameras.OwnSky(camera))captureEvent=localStencil?28:29;
                 frameStart.IssuePluginEvent(renderEvent,captureEvent);
@@ -468,10 +483,13 @@ namespace KoeFrameGeneration
             silhouetteBuffers.Clear();
             foreach (var entry in layerBegins)
             {
-                if (entry.Key != null) entry.Key.RemoveCommandBuffer(CameraEvent.BeforeForwardAlpha, entry.Value);
+                if (entry.Key != null) entry.Key.RemoveCommandBuffer(singlePassLayers?CameraEvent.AfterForwardOpaque:CameraEvent.BeforeForwardAlpha, entry.Value);
                 entry.Value.Dispose();
             }
             layerBegins.Clear();
+            foreach(var entry in earlyLayerFrames)
+            {if(entry.Key!=null)entry.Key.RemoveCommandBuffer(CameraEvent.BeforeForwardOpaque,entry.Value);entry.Value.Dispose();}
+            earlyLayerFrames.Clear();
             foreach (var entry in layerEnds)
             {
                 if (entry.Key != null) entry.Key.RemoveCommandBuffer(CameraEvent.AfterForwardAlpha, entry.Value);
@@ -513,6 +531,7 @@ namespace KoeFrameGeneration
             float now = Time.realtimeSinceStartup;
             double seconds = now - last;
             string row = "{\"t\":" + F(now)
+                + ",\"qpcSeconds\":" + F(System.Diagnostics.Stopwatch.GetTimestamp()/(double)System.Diagnostics.Stopwatch.Frequency)
                 + ",\"scene\":\"" + HighLogic.LoadedScene
                 + "\",\"enabled\":" + values[0]
                 + ",\"allowed\":" + values[1]
@@ -615,6 +634,13 @@ namespace KoeFrameGeneration
                     +",\"dxgiDisplayStatsFailures\":"+independentStats[9]
                     +",\"dxgiDisplayStatsSamples\":"+independentStats[10]+"}\n";
                 Array.Copy(independentStats,previousIndependentStats,independentStats.Length);
+            }
+            if(ReadFrameGenerationMrt!=null)
+            {
+                ReadFrameGenerationMrt(mrtStats,mrtStats.Length);
+                row=row.TrimEnd('\r','\n','}')+",\"singlePassLayers\":true"
+                    +",\"mrtRecognizedShaders\":"+mrtStats[0]+",\"mrtAttachments\":"+mrtStats[1]
+                    +",\"mrtUnsupportedBlends\":"+mrtStats[2]+",\"mrtFailures\":"+mrtStats[3]+"}\n";
             }
             if (!string.IsNullOrEmpty(trace))
                 File.AppendAllText(trace, row);

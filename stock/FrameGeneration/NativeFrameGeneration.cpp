@@ -36,11 +36,26 @@ using Interpolator = FrucD3D11;
 #include "IndependentSourceCapture.h"
 #include "AtmosphereSourceProbe.h"
 #include "PresentedFrameSample.h"
+#include "EffectMrtCapture.h"
 using Microsoft::WRL::ComPtr;
 static bool IndependentMode()
 {
     static bool mode=[](){char value[8]{};return GetEnvironmentVariableA("KOE_INDEPENDENT_LAYERS",value,8)==1&&value[0]=='1';}();
     return mode;
+}
+static bool SinglePassMode()
+{
+    static bool value=[](){char text[8]{};return IndependentMode()&&GetEnvironmentVariableA("KOE_INDEPENDENT_MRT",text,8)==1&&text[0]=='1';}();
+    return value;
+}
+static std::atomic<bool> mrtUnavailable{};
+static std::atomic<long long> mrtInitializationFailures{};
+extern "C" __declspec(dllexport) void ReadFrameGenerationMrt(long long *values,int count)
+{
+    if(!values||count!=4)return;
+    for(unsigned i=0;i<4;i++)values[i]=0;
+    if(auto *capture=EffectMrtCapture::Current())capture->Read(values);
+    values[3]+=mrtInitializationFailures.load();
 }
 static std::atomic<float> independentCloudFade{1};
 static std::atomic<long long> independentPacked{},independentUnavailable{},independentFireflyCopies{},independentParityRejected{};
@@ -394,6 +409,22 @@ static void CaptureReShadeFinal(IDXGISwapChain *chain, HWND window)
 }
 static HRESULT STDMETHODCALLTYPE HookPresent(IDXGISwapChain *chain, UINT sync, UINT flags)
 {
+    if(!ownPresent && SinglePassMode() && !EffectMrtCapture::Current() && !mrtUnavailable.load())
+    {
+        try
+        {
+            DXGI_SWAP_CHAIN_DESC desc{};Check(chain->GetDesc(&desc),"single-pass source chain");
+            DWORD pid{};GetWindowThreadProcessId(desc.OutputWindow,&pid);
+            if(pid==GetCurrentProcessId() && desc.BufferDesc.Width && desc.BufferDesc.Height)
+            {
+                ComPtr<ID3D11Device> gpu;ComPtr<ID3D11DeviceContext> context;
+                Check(chain->GetDevice(IID_PPV_ARGS(&gpu)),"single-pass source device");gpu->GetImmediateContext(&context);
+                // AI-generated comment: Hooks retain shader and context state until process exit.
+                new EffectMrtCapture(gpu.Get(),context.Get(),desc.BufferDesc.Width,desc.BufferDesc.Height);
+            }
+        }
+        catch(...){mrtInitializationFailures++;mrtUnavailable=true;}
+    }
     bool sourceCall = false;
     if (!ownPresent && enabled.load() && allowed.load() && !(flags & DXGI_PRESENT_TEST))
     {
@@ -413,6 +444,7 @@ static HRESULT STDMETHODCALLTYPE HookPresent(IDXGISwapChain *chain, UINT sync, U
                 buffer->GetDesc(&td);
                 if (Supported(td.Format) && td.SampleDesc.Count == 1)
                 {
+                    if(auto *capture=EffectMrtCapture::Current())capture->Resize(td.Width,td.Height);
                     std::lock_guard<std::mutex> lock(stateMutex);
                     gameWindow = desc.OutputWindow;
                     if (!shared || shared->desc.Width != td.Width || shared->desc.Height != td.Height ||
@@ -494,6 +526,7 @@ extern "C" __declspec(dllexport) void ReadFrameGenerationQuality(long long *valu
 }
 static void CaptureWorld(Shared &value, ID3D11Texture2D *image, DXGI_FORMAT format, bool silhouette = false)
 {
+    EffectMrtCapture::Suspend sourceScope;
     if (!value.captureState)
     {
         ComPtr<ID3D11Device1> device1;
@@ -680,6 +713,7 @@ float main(float4 p:SV_Position):SV_Target
 }
 static void CaptureContribution(Shared &value, unsigned index, bool end)
 {
+    EffectMrtCapture::Suspend sourceScope;
     auto &effect=value.contributions[index];
     if(!end)
     {
@@ -756,6 +790,7 @@ static void CaptureContribution(Shared &value, unsigned index, bool end)
 }
 static void __stdcall BeforeUI(int event)
 {
+    EffectMrtCapture::Suspend sourceScope;
     bool effectCapture=event==13||event==15||event==25||event==27;
     if (((event < 1 || event > 29) && (event & 255) != 11 && (event & 255) != 12 && (event & 7) != 6)
         || ((!enabled.load() || !allowed.load()) && !effectCapture))
@@ -791,6 +826,9 @@ static void __stdcall BeforeUI(int event)
             }
             return;
         }
+        if(SinglePassMode() && (event&7)==6)
+            if(auto *capture=EffectMrtCapture::Current())
+            {capture->Enable(enabled.load()&&allowed.load());capture->BeginFrame(event>>3);}
         if (!shared)
             return;
         if ((event & 7) == 6)
@@ -923,9 +961,17 @@ static void __stdcall BeforeUI(int event)
                 ?shared->independentFirefly->Image():nullptr;
             ID3D11Texture2D *waterfall=shared->independentWaterfall && shared->independentWaterfallFrame==shared->layerFrame
                 ?shared->independentWaterfall->Image():nullptr;
+            ID3D11Texture2D *sky=nullptr;
+            if(SinglePassMode())
+            {
+                auto *capture=EffectMrtCapture::Current();
+                sky=capture?capture->Image(1,shared->layerFrame):nullptr;
+                fire=capture?capture->Image(2,shared->layerFrame):nullptr;waterfall=nullptr;
+                if(fire)independentFireflyCopies++;
+            }
             bool atmosphere=atmosphereProbe.Tone()==2;
             int packTiming=shared->layerTiming.Begin(shared->source.Get(),shared->context.Get(),2,shared->cleanSerial+1);
-            shared->cleanHasLayers=shared->independentSources->Capture(shared->contributions[1].before.Get(),shared->cleanSilhouette.Get(),cloudInput.Get(),fire,nullptr,
+            shared->cleanHasLayers=shared->independentSources->Capture(shared->contributions[1].before.Get(),shared->cleanSilhouette.Get(),cloudInput.Get(),fire,sky,
                 atmosphere?atmosphereProbe.Color():nullptr,atmosphere?atmosphereProbe.Extinction():nullptr,atmosphere?atmosphereProbe.Depth():nullptr,waterfall);
             shared->layerTiming.End(shared->context.Get(),packTiming);
             shared->cleanCloudFade=independentCloudFade.load();
@@ -933,6 +979,7 @@ static void __stdcall BeforeUI(int event)
         if(IndependentMode())
         {if(shared->cleanHasLayers)independentPacked++;else independentUnavailable++;}
         shared->cleanSerial++;
+        if(SinglePassMode())if(auto *capture=EffectMrtCapture::Current())capture->EndWorld();
         cleanCopies++;
     }
     catch (const std::exception &e)
@@ -2093,6 +2140,7 @@ extern "C" __declspec(dllexport) void SetFrameGeneration(int on, int scene)
     bool next = on != 0 && failures.load() == 0;
     bool wasEnabled = enabled.exchange(next);
     bool previous = allowed.exchange(scene != 0);
+    if(auto *capture=EffectMrtCapture::Current())capture->Enable(next&&scene!=0);
     if ((previous && scene == 0) || (wasEnabled && !next))
     {
         std::lock_guard<std::mutex> lock(stateMutex);
@@ -2180,6 +2228,7 @@ extern "C" __declspec(dllexport) void StopFrameGeneration()
     enabled = false;
     allowed = false;
     stopWorker = true;
+    if(auto *capture=EffectMrtCapture::Current())capture->Enable(false);
     HWND window = overlayWindow.load();
     if (window)
         ShowWindowAsync(window, SW_HIDE);
