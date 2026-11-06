@@ -4,8 +4,8 @@
 namespace LayerReconstruction
 {
 // All source samples belong to one array slice. Alpha is opacity; RGB is premultiplied.
-inline constexpr unsigned Count = 8;
-inline constexpr unsigned PackedSlices = 4;
+inline constexpr unsigned Count = 9;
+inline constexpr unsigned PackedSlices = 6;
 inline constexpr const char *Shader = R"HLSL(
 Texture2DArray<float4> beforeLayers:register(t0);
 Texture2DArray<float4> afterLayers:register(t1);
@@ -59,6 +59,16 @@ float4 sampleLayer(float2 p,uint layer,bool after)
     int2 q=int2(floor(p));float2 f=frac(p);
     return lerp(lerp(loadLayer(q,layer,after),loadLayer(q+int2(1,0),layer,after),f.x),
                 lerp(loadLayer(q+int2(0,1),layer,after),loadLayer(q+1,layer,after),f.x),f.y);
+}
+float3 sampleTransmission(float2 p,bool after)
+{
+    int2 q=int2(floor(p));float2 f=frac(p);
+    int2 a=clamp(q,0,int2(size)-1),b=clamp(q+1,0,int2(size)-1);
+    float3 c00=(after?afterLayers.Load(int4(a,5,0)):beforeLayers.Load(int4(a,5,0))).rgb;
+    float3 c10=(after?afterLayers.Load(int4(b.x,a.y,5,0)):beforeLayers.Load(int4(b.x,a.y,5,0))).rgb;
+    float3 c01=(after?afterLayers.Load(int4(a.x,b.y,5,0)):beforeLayers.Load(int4(a.x,b.y,5,0))).rgb;
+    float3 c11=(after?afterLayers.Load(int4(b,5,0)):beforeLayers.Load(int4(b,5,0))).rgb;
+    return lerp(lerp(c00,c10,f.x),lerp(c01,c11,f.x),f.y);
 }
 float2 flowAt(float2 p,uint layer,bool backward)
 {
@@ -116,7 +126,10 @@ float3 sourceColor(int2 p,bool after)
     float4 cloud=after?afterLayers.Load(int4(p,2,0)):beforeLayers.Load(int4(p,2,0));
     float4 fire=after?afterLayers.Load(int4(p,3,0)):beforeLayers.Load(int4(p,3,0));
     base=compositeCloud(base,cloud,after?cloudFadeAfter:cloudFadeBefore);
-    return fire.rgb+(1-saturate(fire.a))*base;
+    base=fire.rgb+(1-saturate(fire.a))*base;
+    float4 atmosphere=after?afterLayers.Load(int4(p,4,0)):beforeLayers.Load(int4(p,4,0));
+    float3 transmission=(after?afterLayers.Load(int4(p,5,0)):beforeLayers.Load(int4(p,5,0))).rgb;
+    return atmosphere.a>.01?film(inverseFilm(base)*transmission+atmosphere.rgb):base;
 }
 groupshared uint totals[6];
 [numthreads(8,8,1)]void main(uint3 id:SV_DispatchThreadID,uint lane:SV_GroupIndex)
@@ -154,6 +167,19 @@ groupshared uint totals[6];
             if(layer==6)color=compositeCloud(color,value,lerp(cloudFadeBefore,cloudFadeAfter,phase));
             else color=value.rgb+(1-saturate(value.a))*color;
         }
+        float4 atmosphere=loadLayer(pixel,8,true);bool atmosphereValid=false;
+        if((motionMask&(1u<<8))!=0 && (hasData(loadLayer(pixel,8,false),8)||hasData(atmosphere,8)))
+            atmosphere=predict(float2(pixel),8,atmosphereValid);
+        float3 transmission=afterLayers.Load(int4(pixel,5,0)).rgb;
+        if(atmosphereValid)
+        {
+            float2 p=float2(pixel)-phase*flowAt(float2(pixel),8,false);
+            float2 q=float2(pixel)-(1-phase)*flowAt(float2(pixel),8,true);
+            transmission=lerp(sampleTransmission(p,false),sampleTransmission(q,true),phase);
+        }
+        if(writeLayers!=0)reconstructed[uint3(id.xy,8)]=atmosphere;
+        if(atmosphere.a>.01)color=film(inverseFilm(color)*transmission+atmosphere.rgb);
+        anyValid=anyValid||atmosphereValid;
         if(exact && anyValid && !protectedPixel && all(isfinite(color)))
         {result.rgb=saturate(color);InterlockedAdd(totals[4],1);}
     }

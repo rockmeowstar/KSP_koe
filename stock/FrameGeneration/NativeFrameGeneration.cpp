@@ -35,6 +35,7 @@ using Interpolator = FrucD3D11;
 #include "FireflyLayerCapture.h"
 #include "IndependentSourceCapture.h"
 #include "AtmosphereSourceProbe.h"
+#include "PresentedFrameSample.h"
 using Microsoft::WRL::ComPtr;
 static bool IndependentMode()
 {
@@ -186,8 +187,13 @@ struct Shared
     int stencilMaskFrame = -1;
     std::unique_ptr<DeferredStencil> stencilDecoder;
     std::unique_ptr<FireflyLayerCapture> independentFirefly;
+    std::unique_ptr<FireflyLayerCapture> independentSky;
+    std::unique_ptr<FireflyLayerCapture> independentWaterfall;
     std::unique_ptr<IndependentSourceCapture> independentSources;
     int independentFireflyFrame=-1;
+    int independentSkyFrame=-1;
+    int independentWaterfallFrame=-1;
+    int independentEffectTiming=-1;
     ComPtr<ID3D11Texture2D> independentLocalClasses;
     bool independentLocalClassesValid{};
     bool cleanHasLayers{};
@@ -217,6 +223,8 @@ struct Shared
 };
 static std::shared_ptr<Shared> shared;
 static std::shared_ptr<Shared> independentCaptureShared;
+static std::shared_ptr<Shared> independentSkyCaptureShared;
+static std::shared_ptr<Shared> independentWaterfallCaptureShared;
 extern "C" __declspec(dllexport) int CanFrameGenerationIndependentCapture()
 {
     std::lock_guard<std::mutex> lock(stateMutex);
@@ -751,8 +759,8 @@ static void CaptureContribution(Shared &value, unsigned index, bool end)
 }
 static void __stdcall BeforeUI(int event)
 {
-    bool effectCapture=event==13||event==15;
-    if (((event < 1 || event > 20) && (event & 255) != 11 && (event & 255) != 12 && (event & 7) != 6)
+    bool effectCapture=event==13||event==15||event==21||event==23||event==25||event==27;
+    if (((event < 1 || event > 27) && (event & 255) != 11 && (event & 255) != 12 && (event & 7) != 6)
         || ((!enabled.load() || !allowed.load()) && !effectCapture))
         return;
     try
@@ -760,19 +768,30 @@ static void __stdcall BeforeUI(int event)
         std::lock_guard<std::mutex> lock(stateMutex);
         if(effectCapture && IndependentMode())
         {
-            if(event==13)
+            bool sky=event==21||event==23;
+            bool waterfall=event==25||event==27;
+            auto &pinned=waterfall?independentWaterfallCaptureShared:sky?independentSkyCaptureShared:independentCaptureShared;
+            if(event==13||event==21||event==25)
             {
                 if(!shared)return;
-                if(!shared->independentFirefly)shared->independentFirefly=std::make_unique<FireflyLayerCapture>(shared->source.Get(),shared->context.Get());
-                if(shared->independentFirefly->Begin())independentCaptureShared=shared;
+                auto &capture=waterfall?shared->independentWaterfall:sky?shared->independentSky:shared->independentFirefly;
+                if(!capture)capture=std::make_unique<FireflyLayerCapture>(shared->source.Get(),shared->context.Get());
+                if(capture->Begin(sky))
+                {
+                    pinned=shared;
+                    shared->independentEffectTiming=shared->layerTiming.Begin(shared->source.Get(),shared->context.Get(),1,shared->cleanSerial+1);
+                }
             }
             else
             {
-                auto captured=independentCaptureShared;
+                auto captured=pinned;
                 if(!captured)return;
-                captured->independentFirefly->End();captured->independentFireflyFrame=captured->layerFrame;
-                if(captured->independentFirefly->Image())independentFireflyCopies++;
-                independentCaptureShared.reset();
+                auto &capture=waterfall?captured->independentWaterfall:sky?captured->independentSky:captured->independentFirefly;
+                capture->End();
+                captured->layerTiming.End(captured->context.Get(),captured->independentEffectTiming);captured->independentEffectTiming=-1;
+                (waterfall?captured->independentWaterfallFrame:sky?captured->independentSkyFrame:captured->independentFireflyFrame)=captured->layerFrame;
+                if(!sky && !waterfall && capture->Image())independentFireflyCopies++;
+                pinned.reset();
             }
             return;
         }
@@ -906,7 +925,15 @@ static void __stdcall BeforeUI(int event)
             if(!shared->independentSources)shared->independentSources=std::make_unique<IndependentSourceCapture>(shared->source.Get(),shared->context.Get(),td.Width,td.Height);
             ID3D11Texture2D *fire=shared->independentFirefly && shared->independentFireflyFrame==shared->layerFrame
                 ?shared->independentFirefly->Image():nullptr;
-            shared->cleanHasLayers=shared->independentSources->Capture(shared->contributions[1].before.Get(),shared->cleanSilhouette.Get(),cloudInput.Get(),fire);
+            ID3D11Texture2D *sky=shared->independentSky && shared->independentSkyFrame==shared->layerFrame
+                ?shared->independentSky->Image():nullptr;
+            ID3D11Texture2D *waterfall=shared->independentWaterfall && shared->independentWaterfallFrame==shared->layerFrame
+                ?shared->independentWaterfall->Image():nullptr;
+            bool atmosphere=atmosphereProbe.Tone()==2;
+            int packTiming=shared->layerTiming.Begin(shared->source.Get(),shared->context.Get(),2,shared->cleanSerial+1);
+            shared->cleanHasLayers=shared->independentSources->Capture(shared->contributions[1].before.Get(),shared->cleanSilhouette.Get(),cloudInput.Get(),fire,sky,
+                atmosphere?atmosphereProbe.Color():nullptr,atmosphere?atmosphereProbe.Extinction():nullptr,atmosphere?atmosphereProbe.Depth():nullptr,waterfall);
+            shared->layerTiming.End(shared->context.Get(),packTiming);
             shared->cleanCloudFade=independentCloudFade.load();
         }
         if(IndependentMode())
@@ -1527,6 +1554,8 @@ float4 main(float4 position : SV_Position) : SV_Target
                     {
                         publishedChanged+=ticket.counts[5];publishedComposed+=ticket.counts[6];
                         publishedPixelTotal+=std::uint64_t(source->desc.Width)*source->desc.Height;
+                        if(independentFireflyCopies.load()>10)
+                            PresentedFrameSample::Capture(device.Get(),context.Get(),frame.composed.Get(),phase.composed.Get(),frame.real.Get(),frame.timestamp,i+1,frame.phaseCount,ticket.counts[6]);
                     }
                     lastHashKnown = true;
                     lastPresentedHash = hash;

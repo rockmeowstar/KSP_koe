@@ -12,6 +12,10 @@ class AtmosphereSourceProbe
     Ptr<ID3D11Texture2D> images[3];
     int tone{};float z[4]{};bool saved{};
 public:
+    ID3D11Texture2D *Color()const{return images[0].Get();}
+    ID3D11Texture2D *Extinction()const{return images[1].Get();}
+    ID3D11Texture2D *Depth()const{return images[2].Get();}
+    int Tone()const{return tone;}
     void Set(ID3D11Texture2D *c,ID3D11Texture2D *t,ID3D11Texture2D *d,int mode,const float *depth)
     {images[0]=c;images[1]=t;images[2]=d;tone=mode;for(unsigned i=0;i<4;i++)z[i]=depth[i];}
     void Save(ID3D11DeviceContext *context)

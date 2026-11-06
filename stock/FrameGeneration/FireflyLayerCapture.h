@@ -5,18 +5,26 @@
 #include <MinHook.h>
 #include <map>
 #include <stdexcept>
+#include <array>
 
 class FireflyLayerCapture
 {
     template<class T>using Ptr=Microsoft::WRL::ComPtr<T>;
     using SetBlend=void(STDMETHODCALLTYPE*)(ID3D11DeviceContext*,ID3D11BlendState*,const FLOAT*,UINT);
+    using SetResources=void(STDMETHODCALLTYPE*)(ID3D11DeviceContext*,UINT,UINT,ID3D11ShaderResourceView *const*);
     inline static SetBlend original{};
+    inline static SetResources originalResources{};
     inline static FireflyLayerCapture *active{};
     struct Blend { Ptr<ID3D11BlendState> source,layer; };
     std::map<ID3D11BlendState*,Blend> states;
     Ptr<ID3D11Device> device;
     Ptr<ID3D11DeviceContext> context;
     Ptr<ID3D11Texture2D> image;
+    Ptr<ID3D11ShaderResourceView> blackView;
+    std::array<Ptr<ID3D11ShaderResourceView>,D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT> expectedResources;
+    std::array<bool,D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT> replaced{};
+    unsigned width{},height{};
+    bool pureBackground{};
     Ptr<ID3D11RenderTargetView> target,previousTargets[8];
     Ptr<ID3D11DepthStencilView> previousDepth;
     Ptr<ID3D11BlendState> lastBlend;
@@ -24,6 +32,33 @@ class FireflyLayerCapture
     UINT lastMask{};
     bool valid{},recording{};
     static void Check(HRESULT value){if(FAILED(value))throw std::runtime_error("Firefly layer capture D3D11 failure");}
+    bool Background(ID3D11ShaderResourceView *view)const
+    {
+        if(!view)return false;
+        Ptr<ID3D11Resource> resource;view->GetResource(&resource);Ptr<ID3D11Texture2D> texture;
+        if(FAILED(resource.As(&texture)))return false;
+        D3D11_TEXTURE2D_DESC desc{};texture->GetDesc(&desc);
+        return desc.Width==width && desc.Height==height && desc.SampleDesc.Count==1
+            && (desc.Format==DXGI_FORMAT_R16G16B16A16_TYPELESS || desc.Format==DXGI_FORMAT_R16G16B16A16_FLOAT
+                || desc.Format==DXGI_FORMAT_R8G8B8A8_TYPELESS || desc.Format==DXGI_FORMAT_R8G8B8A8_UNORM
+                || desc.Format==DXGI_FORMAT_R8G8B8A8_UNORM_SRGB || desc.Format==DXGI_FORMAT_B8G8R8A8_TYPELESS
+                || desc.Format==DXGI_FORMAT_B8G8R8A8_UNORM || desc.Format==DXGI_FORMAT_B8G8R8A8_UNORM_SRGB);
+    }
+    static void STDMETHODCALLTYPE ResourceHook(ID3D11DeviceContext *ctx,UINT start,UINT count,ID3D11ShaderResourceView *const* input)
+    {
+        auto *capture=active;
+        if(!capture || !capture->recording || !capture->pureBackground || capture->context.Get()!=ctx
+            || !input || start>=D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT || count>D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT-start)
+        {originalResources(ctx,start,count,input);return;}
+        ID3D11ShaderResourceView *views[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT]{};
+        for(unsigned i=0;i<count;i++)
+        {
+            capture->expectedResources[start+i]=input[i];views[i]=input[i];
+            if(capture->Background(input[i]))
+            {views[i]=capture->blackView.Get();capture->replaced[start+i]=true;}
+        }
+        originalResources(ctx,start,count,views);
+    }
     static void STDMETHODCALLTYPE BlendHook(ID3D11DeviceContext *ctx,ID3D11BlendState *state,const FLOAT *factor,UINT mask)
     {
         auto *capture=active;
@@ -73,9 +108,17 @@ public:
                 throw std::runtime_error("Firefly layer blend hook failed");
             auto enabled=MH_EnableHook(table[35]);if(enabled!=MH_OK && enabled!=MH_ERROR_ENABLED)throw std::runtime_error("Firefly layer blend hook enable failed");
         }
+        if(!originalResources)
+        {
+            auto table=*reinterpret_cast<void***>(ctx);
+            if(MH_CreateHook(table[8],reinterpret_cast<void*>(&ResourceHook),reinterpret_cast<void**>(&originalResources))!=MH_OK)
+                throw std::runtime_error("Independent source resource hook failed");
+            auto enabled=MH_EnableHook(table[8]);if(enabled!=MH_OK && enabled!=MH_ERROR_ENABLED)
+                throw std::runtime_error("Independent source resource hook enable failed");
+        }
     }
     ~FireflyLayerCapture(){if(recording)End();if(active==this)active=nullptr;}
-    bool Begin()
+    bool Begin(bool isolateBackground=false)
     {
         if(active||recording)return false;
         ID3D11RenderTargetView *targets[8]{};ID3D11DepthStencilView *depth{};
@@ -85,6 +128,7 @@ public:
         Ptr<ID3D11Resource> resource;previousTargets[0]->GetResource(&resource);
         Ptr<ID3D11Texture2D> source;Check(resource.As(&source));D3D11_TEXTURE2D_DESC desc{};source->GetDesc(&desc);
         if(desc.SampleDesc.Count!=1||desc.ArraySize!=1)return false;
+        width=desc.Width;height=desc.Height;pureBackground=isolateBackground;
         D3D11_TEXTURE2D_DESC old{};if(image)image->GetDesc(&old);
         if(!image||old.Width!=desc.Width||old.Height!=desc.Height)
         {
@@ -97,6 +141,23 @@ public:
         float black[4]={0,0,0,1};context->ClearRenderTargetView(target.Get(),black);
         auto *rt=target.Get();context->OMSetRenderTargets(1,&rt,previousDepth.Get());
         valid=recording=true;active=this;
+        if(pureBackground)
+        {
+            if(!blackView)
+            {
+                D3D11_TEXTURE2D_DESC black{};black.Width=black.Height=black.MipLevels=black.ArraySize=black.SampleDesc.Count=1;
+                black.Format=DXGI_FORMAT_R16G16B16A16_FLOAT;black.BindFlags=D3D11_BIND_SHADER_RESOURCE;
+                unsigned zero[2]{};D3D11_SUBRESOURCE_DATA data{zero,8,0};Ptr<ID3D11Texture2D> texture;
+                Check(device->CreateTexture2D(&black,&data,&texture));Check(device->CreateShaderResourceView(texture.Get(),nullptr,&blackView));
+            }
+            ID3D11ShaderResourceView *views[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT]{};
+            context->PSGetShaderResources(0,D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT,views);
+            for(unsigned i=0;i<D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT;i++)
+            {
+                expectedResources[i].Attach(views[i]);
+                if(Background(views[i])){auto *black=blackView.Get();originalResources(context.Get(),i,1,&black);replaced[i]=true;}
+            }
+        }
         // Set the cached state's tracked-alpha equivalent even if Unity skips a redundant state call.
         BlendHook(context.Get(),lastBlend.Get(),lastFactors,lastMask);
         return true;
@@ -108,6 +169,12 @@ public:
         ID3D11RenderTargetView *targets[8]{};for(unsigned i=0;i<8;i++)targets[i]=previousTargets[i].Get();
         context->OMSetRenderTargets(8,targets,previousDepth.Get());
         original(context.Get(),lastBlend.Get(),lastFactors,lastMask);
+        if(pureBackground)
+            for(unsigned i=0;i<D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT;i++)
+            {
+                if(replaced[i]){auto *view=expectedResources[i].Get();originalResources(context.Get(),i,1,&view);}
+                replaced[i]=false;expectedResources[i].Reset();
+            }
         for(auto &rt:previousTargets)rt.Reset();previousDepth.Reset();lastBlend.Reset();
     }
     ID3D11Texture2D *Image()const{return valid&&!recording?image.Get():nullptr;}

@@ -51,6 +51,8 @@ namespace KoeFrameGeneration
         readonly VesselSilhouette silhouette = new VesselSilhouette();
         readonly EffectLayers effectLayers = new EffectLayers();
         readonly IndependentEffectPass independentEffects = new IndependentEffectPass();
+        readonly IndependentSkyPass independentSky=new IndependentSkyPass();
+        readonly IndependentWaterfallPass independentWaterfall=new IndependentWaterfallPass();
         readonly bool independentLayers = Environment.GetEnvironmentVariable("KOE_INDEPENDENT_LAYERS")=="1";
         readonly EveCloudLayer eveCloudLayer = new EveCloudLayer();
         readonly AtmosphereSourceProbe atmosphereProbe=new AtmosphereSourceProbe();
@@ -195,8 +197,7 @@ namespace KoeFrameGeneration
                     SetFrameGenerationCloudFade=Function<Scalar>(module,"SetFrameGenerationCloudFade");
                     ReadFrameGenerationIndependent=Function<Read>(module,"ReadFrameGenerationIndependent");
                     CanFrameGenerationIndependentCapture=Function<Integer>(module,"CanFrameGenerationIndependentCapture");
-                    if(!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("KOE_INDEPENDENT_SNAPSHOT")))
-                        SendAtmosphereProbe=Function<AtmosphereSourceProbe.Send>(module,"SetFrameGenerationAtmosphereProbe");
+                    SendAtmosphereProbe=Function<AtmosphereSourceProbe.Send>(module,"SetFrameGenerationAtmosphereProbe");
                 }
                 SetFrameGenerationWaterLayer = Function<Texture>(module, "SetFrameGenerationWaterLayer");
                 ReadFrameGenerationSilhouette = Function<Read>(module, "ReadFrameGenerationSilhouette");
@@ -272,6 +273,8 @@ namespace KoeFrameGeneration
             BeginLayerFrame();
             long begin = System.Diagnostics.Stopwatch.GetTimestamp();
             try { eveCloudLayer.Observe(camera); oceanLayer.Observe(camera); SendCloudLayer();
+                if(independentLayers && CanFrameGenerationIndependentCapture()!=0)
+                {independentSky.Prepare(camera,renderEvent);independentWaterfall.Prepare(camera,renderEvent);}
                 if(SendAtmosphereProbe!=null)atmosphereProbe.Observe(camera,SendAtmosphereProbe); }
             finally { layerCpuMs += 1000.0 * (System.Diagnostics.Stopwatch.GetTimestamp()-begin) / System.Diagnostics.Stopwatch.Frequency; }
         }
@@ -441,8 +444,11 @@ namespace KoeFrameGeneration
             ClearStencilCameras();
             effectLayers.Dispose();
             independentEffects.Dispose();
+            independentSky.Dispose();
+            independentWaterfall.Dispose();
             eveCloudLayer.Clear();
             atmosphereProbe.Clear();
+            if(SendAtmosphereProbe!=null)SendAtmosphereProbe(IntPtr.Zero,IntPtr.Zero,IntPtr.Zero,-1,new float[4]);
             oceanLayer.Clear();
             cloudTexture = null; cloudNative = IntPtr.Zero;
             cloudHandles.Clear();

@@ -46,7 +46,7 @@ class IndependentLayers
         bool pending{};
     };
     PresenceSample presenceSamples[3];
-    unsigned activeMask=255,estimatedMask=255;
+    unsigned activeMask=511,estimatedMask=511;
     std::uint64_t inputSerial{},lastPresenceSerial{};
     Ptr<ID3D11VertexShader> vertex;
     Ptr<ID3D11PixelShader> downsample;
@@ -189,6 +189,7 @@ groupshared uint groupBits;
         if(image.Load(int4(id.xy,2,0)).a>.01)selected|=1u<<6;
         float4 fire=image.Load(int4(id.xy,3,0));
         if(fire.a>.01 || max(abs(fire.r),max(abs(fire.g),abs(fire.b)))>.0001)selected|=1u<<7;
+        if(image.Load(int4(id.xy,4,0)).a>.01)selected|=1u<<8;
         InterlockedOr(groupBits,selected);
     }
     GroupMemoryBarrierWithGroupSync();if(lane==0)InterlockedOr(bits[0],groupBits);
@@ -250,7 +251,7 @@ groupshared uint groupBits;
             if(context->Map(sample.readback.Get(),0,D3D11_MAP_READ,D3D11_MAP_FLAG_DO_NOT_WAIT,&mapped)==S_OK)
             {
                 if(sample.serial>lastPresenceSerial)
-                {activeMask=*static_cast<unsigned*>(mapped.pData)&255u;lastPresenceSerial=sample.serial;}
+                {activeMask=*static_cast<unsigned*>(mapped.pData)&511u;lastPresenceSerial=sample.serial;}
                 context->Unmap(sample.readback.Get(),0);sample.pending=false;
             }
         }
@@ -273,7 +274,7 @@ groupshared uint groupBits;
         }
         context->RSSetViewports(viewportCount,viewports);context->RSSetState(previousRaster.Get());
     }
-    void SetTestVectors(ID3D11Texture2D *source){context->CopyResource(vectors.Get(),source);estimatedMask=255;}
+    void SetTestVectors(ID3D11Texture2D *source){context->CopyResource(vectors.Get(),source);estimatedMask=511;}
     ID3D11Texture2D *DiagnosticVectors()const{return vectors.Get();}
     unsigned ActiveMask()const{return estimatedMask;}
     void Generate(unsigned before,unsigned after,float phase,ID3D11ShaderResourceView *previous,
