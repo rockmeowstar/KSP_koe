@@ -47,8 +47,9 @@ static class OptionStoreTests
             Check(
                 !File.ReadAllText(path).Contains("SimulatedTransferKernel")
                 && !File.ReadAllText(path).Contains("ViewCoverageCull")
-                && regenerated.Enabled("Rendering.AdaptiveFrameCadence"),
-                "Only accepted new feature is exposed"
+                && !regenerated.Enabled("Rendering.FrameGeneration")
+                && !regenerated.Enabled("Rendering.AdaptiveFrameCadence"),
+                "Frame generation defaults off and also disables its dependent cadence option"
             );
             var lostDependency = new OptionStore(path, f => f.Group == "EVE" ? "EVE removed" : null);
             Check(!lostDependency.Enabled("EVE.CurveBakeHoist"), "Runtime dependency guard beats true");
@@ -71,7 +72,7 @@ static class OptionStoreTests
 
             )
             {
-                string enabled = original.Replace(pair[1] + " = false", pair[1] + " = true");
+                string enabled = original.Replace(pair[0] + " = false", pair[0] + " = true").Replace(pair[1] + " = false", pair[1] + " = true");
                 File.WriteAllText(path, enabled);
                 Check(new OptionStore(path, f => null).Enabled(pair[2] + "." + pair[1]), "Independent child enabled: " + pair[1]);
                 File.WriteAllText(path, enabled.Replace(pair[0] + " = true", pair[0] + " = false"));
@@ -101,7 +102,7 @@ static class OptionStoreTests
                 var competing = new OptionStore(path, f => null);
                 if (competing.Created)
                     System.Threading.Interlocked.Increment(ref creators);
-                Check(Catalog.Features.All(f => competing.Enabled(f.Key) == f.DefaultEnabled), "Atomic readers see complete defaults");
+                Check(Catalog.Features.All(f => competing.Enabled(f.Key) == (f.DefaultEnabled && (f.Parent==null || competing.Enabled(f.Parent)))), "Atomic readers see complete defaults including disabled parents");
             });
             Check(creators == 1, "Exactly one creator wins");
             File.WriteAllBytes(path, new byte[0]);

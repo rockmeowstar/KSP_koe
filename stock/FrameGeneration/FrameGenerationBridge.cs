@@ -64,8 +64,17 @@ namespace KoeFrameGeneration
         readonly IndependentEffectPass independentEffects = new IndependentEffectPass();
         readonly ScattererCameraLayers scattererCameras=new ScattererCameraLayers();
         readonly IndependentWaterfallPass independentWaterfall=new IndependentWaterfallPass();
-        readonly bool independentLayers = Environment.GetEnvironmentVariable("KOE_INDEPENDENT_LAYERS")=="1";
-        readonly bool singlePassLayers=Environment.GetEnvironmentVariable("KOE_INDEPENDENT_MRT")=="1";
+        static bool AcceptedMode(string name)
+        {
+            string value=Environment.GetEnvironmentVariable(name);
+            return string.IsNullOrEmpty(value) || value=="1";
+        }
+        static void SetModeDefault(string name)
+        {
+            if(string.IsNullOrEmpty(Environment.GetEnvironmentVariable(name)))Environment.SetEnvironmentVariable(name,"1");
+        }
+        readonly bool independentLayers=AcceptedMode("KOE_INDEPENDENT_LAYERS");
+        readonly bool singlePassLayers=AcceptedMode("KOE_INDEPENDENT_LAYERS") && AcceptedMode("KOE_INDEPENDENT_MRT");
         Read ReadFrameGenerationMrt;
         readonly long[] mrtStats=new long[4];
         readonly EveCloudLayer eveCloudLayer = new EveCloudLayer();
@@ -182,6 +191,8 @@ namespace KoeFrameGeneration
                 Destroy(gameObject);
                 return;
             }
+            if(independentLayers)SetModeDefault("KOE_INDEPENDENT_LAYERS");
+            if(singlePassLayers)SetModeDefault("KOE_INDEPENDENT_MRT");
 
             try
             {
