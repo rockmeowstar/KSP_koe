@@ -27,7 +27,7 @@ $minHookSources = @('buffer.c','hook.c','trampoline.c','hde\hde64.c') | ForEach-
 }
 Push-Location $OutputDirectory
 try {
-    & "$compilerDirectory\bin\Hostx64\x64\cl.exe" /nologo /W4 /O2 /MT /LD /EHsc /std:c++17 @includePaths "/I$projectRoot\third_party\DxbcHash" /FIWindows.h "$PSScriptRoot\NativeCloudGuard.cpp" "$projectRoot\third_party\DxbcHash\DxilHash.cpp" @minHookSources RustCloudCompiler.lib /link @libraryPaths d3d11.lib bcrypt.lib advapi32.lib userenv.lib ws2_32.lib ntdll.lib /OUT:KoeCloudGuard.dll
+    & "$compilerDirectory\bin\Hostx64\x64\cl.exe" /nologo /W4 /O2 /MT /LD /EHsc /std:c++17 /DNOMINMAX @includePaths "/I$projectRoot\third_party\DxbcHash" /FIWindows.h "$PSScriptRoot\NativeCloudGuard.cpp" "$projectRoot\third_party\DxbcHash\DxilHash.cpp" @minHookSources RustCloudCompiler.lib /link @libraryPaths d3d11.lib bcrypt.lib advapi32.lib userenv.lib ws2_32.lib ntdll.lib /OUT:KoeCloudGuard.dll
     if ($LASTEXITCODE -ne 0) {
         throw 'Cloud recipe native compilation failed'
     }
@@ -37,6 +37,8 @@ try {
     }
     & "$compilerDirectory\bin\Hostx64\x64\cl.exe" /nologo /W4 /O2 /MT /EHsc /std:c++17 @includePaths "$projectRoot\tests\CloudPackingTests.cpp" /link @libraryPaths d3d11.lib /OUT:CloudPackingTests.exe
     if ($LASTEXITCODE -ne 0) { throw 'Cloud packing adapter tests compilation failed' }
+    & "$compilerDirectory\bin\Hostx64\x64\cl.exe" /nologo /W4 /O2 /MT /EHsc /std:c++17 @includePaths "$projectRoot\tests\CloudMapCacheTests.cpp" /link @libraryPaths d3d11.lib d3dcompiler.lib /OUT:CloudMapCacheTests.exe
+    if ($LASTEXITCODE -ne 0) { throw 'Cloud map cache tests compilation failed' }
 }
 finally {
     Pop-Location

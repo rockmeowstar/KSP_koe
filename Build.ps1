@@ -1,4 +1,4 @@
-param([string]$GamePath = $env:KSP_ROOT,[string]$ReleaseVersion = '0.15.6')
+param([string]$GamePath = $env:KSP_ROOT,[string]$ReleaseVersion = '0.15.7')
 $ErrorActionPreference = 'Stop'
 if ($ReleaseVersion -notmatch '^\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?$') {
     throw 'Invalid release version'
@@ -209,7 +209,7 @@ $modules = @(
     @{
         Path = 'mod/EnvironmentalVisualEnhancements/ShaderCorrectionGuards'
         Name = 'KoeCloudGuards'
-        Keys = 'EVE.ShaderCorrectionGuards,EVE.CloudShaderPacking'
+        Keys = 'EVE.ShaderCorrectionGuards,EVE.CloudShaderPacking,EVE.CloudMapPacking'
         Types = 'KerbalOverEngineering.CloudGuards.Bootstrap'
         Native = 'Cloud'
     },
@@ -274,7 +274,7 @@ $nativeFiles = @{
     Coverage = ,@('KoeCoverageKernel.dll',$coverageBuild.binarySha256)
     Uniforms = ,@('KoeUniformKernel.dll',$null)
     Drag = ,@('KoeDragReduction.dll',$null)
-    Cloud = @(@('KoeCloudGuard.dll','322714ab7e5e704936745091a781e770f5c5dcf31b7e895362433b0da584b8a2'),@('base-guarded.koepatch','544be245373e4a7bc0dfa0df0a8254d4fb170738c61dcfc361afacb30bed9bee'),@('top-guarded.koepatch','97db0080cb6c833a317e746b465618a96ffb30f88ad80f31d28b649e80365131'))
+    Cloud = @(@('KoeCloudGuard.dll','3f649da9019a4ba781aea15ac224d6957770602fe45a1651898d3317cdce2fac'),@('base-guarded.koepatch','544be245373e4a7bc0dfa0df0a8254d4fb170738c61dcfc361afacb30bed9bee'),@('top-guarded.koepatch','97db0080cb6c833a317e746b465618a96ffb30f88ad80f31d28b649e80365131'))
     Lights = @(@('KSP_x64_Data/Plugins/KoeInstancedLights.dll','75d232aae1885345270bbc979c642e83b3fe3a4649ad17daf99ac7ae7ca51bf4'),@('GameData/KerbalOverEngineeringExperiments/InstancedLights/light0-ps.shdr','52f0befe1d3fa291a4bebef94502ef14c162f4a3d86cd579a87da9664249bef7'),@('GameData/KerbalOverEngineeringExperiments/InstancedLights/light0-vs.shdr','18f304a7ebaf6499cde707116f7cda855078b930ae59b750ed6b5b8a0c46e496'),@('GameData/KerbalOverEngineeringExperiments/InstancedLights/light1-ps.shdr','bddc54bcdf16b256e3fdc3eabf6ea7675717597293d40bbfc2deb397878e81c8'),@('GameData/KerbalOverEngineeringExperiments/InstancedLights/light1-vs.shdr','18f304a7ebaf6499cde707116f7cda855078b930ae59b750ed6b5b8a0c46e496'))
     Frame = ,@('KSP_x64_Data/Plugins/KoeFrameGeneration.dll','732fbe935aaef00f1fa4debcec73ea37b45b74921402c7d546c3e520f28155af')
     FarFilter = ,@('KoeFarRendererFilter.dll',$farFilterBuild.binarySha256)

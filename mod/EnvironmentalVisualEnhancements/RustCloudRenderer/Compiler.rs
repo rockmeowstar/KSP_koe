@@ -1,8 +1,12 @@
 #![allow(dead_code)]
 #[path = "HalfAnalysis.rs"]
 mod analysis;
+#[path = "BlockPacking.rs"]
+mod block_packing;
 #[path = "ShaderIr.rs"]
 mod ir;
+#[path = "MapPacking.rs"]
+mod map_optimizer;
 #[path = "HalfOptimizer.rs"]
 mod optimizer;
 #[path = "ShaderProgram.rs"]
@@ -91,5 +95,35 @@ pub unsafe extern "C" fn koe_compile_cloud_half_variant(
 pub unsafe extern "C" fn koe_free_cloud_half(compiled: *mut Compiled) {
     if !compiled.is_null() {
         drop(Box::from_raw(compiled));
+    }
+}
+
+// AI-generated comment: The source keeps its original shader if matching or compilation fails.
+#[no_mangle]
+pub unsafe extern "C" fn koe_compile_cloud_maps(
+    input: *const u8,
+    length: usize,
+    output: *mut *const u8,
+    output_length: *mut usize,
+) -> *mut Compiled {
+    if input.is_null() || output.is_null() || output_length.is_null() {
+        return std::ptr::null_mut();
+    }
+    *output = std::ptr::null();
+    *output_length = 0;
+    if length < 32 || length > isize::MAX as usize {
+        return std::ptr::null_mut();
+    }
+    let result = std::panic::catch_unwind(|| {
+        map_optimizer::optimize(std::slice::from_raw_parts(input, length))
+    });
+    match result {
+        Ok(Ok((bytes, _))) => {
+            let compiled = Box::new(Compiled { bytes });
+            *output = compiled.bytes.as_ptr();
+            *output_length = compiled.bytes.len();
+            Box::into_raw(compiled)
+        }
+        _ => std::ptr::null_mut(),
     }
 }

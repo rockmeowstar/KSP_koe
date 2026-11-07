@@ -1,26 +1,26 @@
 <p align="center">
-  <img src="assets/readme-hero-0.15.6-eight-r2.svg" alt="KerbalOverEngineering 0.15.6 — eight performance metrics without generated frames" width="100%">
+  <img src="assets/readme-hero-0.15.7.svg" alt="KerbalOverEngineering 0.15.7 — six flight configurations, base FPS and physics rates" width="100%">
 </p>
 
 <p align="center">
-  <a href="https://github.com/rockmeowstar/ksp_koe/releases/tag/0.15.6"><img src="https://img.shields.io/badge/release-0.15.6-8b5cf6?style=flat-square" alt="Release 0.15.6"></a>
+  <a href="https://github.com/rockmeowstar/ksp_koe/releases/tag/0.15.7"><img src="https://img.shields.io/badge/release-0.15.7-8b5cf6?style=flat-square" alt="Release 0.15.7"></a>
   <img src="https://img.shields.io/badge/KSP-1.12.5-64748b?style=flat-square" alt="KSP 1.12.5">
-  <img src="https://img.shields.io/badge/Feature_flags-61-14b8a6?style=flat-square" alt="61 feature flags">
-  <img src="https://img.shields.io/badge/Local_checks-verified_2026--11--07-22c55e?style=flat-square" alt="Local validation snapshot: November 7, 2026">
+  <img src="https://img.shields.io/badge/Feature_flags-66-14b8a6?style=flat-square" alt="66 feature flags">
+  <img src="https://img.shields.io/badge/Local_checks-verified_2026--11--08-22c55e?style=flat-square" alt="Local validation snapshot: November 8, 2026">
   <a href="#ai-disclosure"><img src="https://img.shields.io/badge/AI_code-39%25_estimated-8b5cf6?style=flat-square" alt="Estimated AI-generated code: 39%"></a>
   <a href="#ai-disclosure"><img src="https://img.shields.io/badge/AI_tests-80%25_estimated-a78bfa?style=flat-square" alt="Estimated AI-generated tests: 80%"></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/rockmeowstar/ksp_koe/releases/tag/0.15.6">Download 0.15.6</a> ·
+  <a href="https://github.com/rockmeowstar/ksp_koe/releases/tag/0.15.7">Download 0.15.7</a> ·
   <a href="https://spacedock.info/mod/4787/KerbalOverengineering%20(KOE)">SpaceDock / CKAN</a> ·
   <a href="https://forum.kerbalspaceprogram.com/topic/232077-1125-kerbaloverengineering-koe-performance-optimization-for-ksp-and-its-mods/">Forum</a> ·
   <a href="https://github.com/rockmeowstar/ksp_koe/issues">Report an issue</a>
 </p>
 
-KOE optimizes loading, resource handling, scene updates and rendering in KSP and supported mods. It combines **61 individually configurable options across 30 modules**. Frame generation is optional; most features do not require an NVIDIA GPU.
+KOE optimizes loading, resource handling, scene updates and rendering in KSP and supported mods. It combines **66 individually configurable options across 33 modules**. Frame generation is optional; most features do not require an NVIDIA GPU.
 
-0.15.6 adds Rust-backed FAR renderer filtering and property setup, optional indexed delta-v resets, and further Rust rendering/cloud optimizations. The two FAR options default on for supported fresh configs; existing manual settings remain intact.
+0.15.7 is a maintenance release: it fixes resource cleanup in Deferred SSR, FAR, CameraTools, Firefly and stock overlay cameras across scene changes. Experimental cloud-map packing remains opt-in. Existing settings are preserved, and frame generation remains off by default.
 
 ## Install
 
@@ -55,6 +55,23 @@ EVE BC4 coverage maps use a batched Rust integral-image kernel on Windows x64, w
 The automatic material-instancing experiment was removed: the tested Deferred bundle does not contain instancing variants for the selected shaders, and changing a material flag alone cannot supply them. Native point-light batching yields to the original Unity lights when RenderDoc is loaded; this does not guarantee compatibility with the rest of the capture stack.
 
 ## Measured performance
+
+### 0.15.7 flight samples
+
+Three 15-real-second mid-flight samples per configuration, starting at roughly 10.68 km and 378.5 m/s; target pitch 45°, heading east, 345 parts. Frame generation is off. Values below are medians; physics means simulation steps per real second.
+
+| Configuration | Base FPS | Physics steps/s |
+|---|---:|---:|
+| FAR 0.16.1.2 | 11.98 | 23.96 |
+| FAR 0.16.1.2 + KOE | 20.07 | 40.14 |
+| FAR 0.16.2 + KSPCF | 12.31 | 24.63 |
+| FAR 0.16.2 + KSPCF + KOE | 21.97 | 43.34 |
+
+With FAR 0.16.2 and KSPCF held constant, KOE improved the recorded median by **78.4% in base FPS** and **76.0% in physics rate**. The banner's two **No FAR** cards are retained failure-case observations: FAR 0.16.2 did not load without its KSPCF dependency; they are not clean-uninstall controls. On FAR 0.16.1.2, seven FAR-specific KOE integrations are disabled by compatibility guards. Different FAR versions prevent attributing their difference to KSPCF alone.
+
+The banner's repeatability index is `100 − average relative range`, averaging the FPS and physics ranges divided by their respective means. It describes these three samples and is not statistical confidence. [Sample data and limitations](assets/benchmarks-0.15.7.json).
+
+### Earlier full-cycle measurements (0.15.6)
 
 **0.15.6 snapshot · November 7, 2026.** The latest full flight with both accepted FAR fixes is compared with the **published November 5 reference, with KSPCommunityFixes enabled and KOE completely removed**. This is a historical comparison, not a new matched A/B. Cache states and observation windows differ; the figures describe these runs and do not guarantee the same gain on another machine. Percentages are approximate because the historical reference values are rounded.
 
@@ -96,7 +113,10 @@ The badge above records the **latest local validation snapshot**, not a continuo
 | [Loading budgets](tests/LoadingResourcesTests.cs) | 345 checks passed | Hardware-dependent worker/memory policy |
 | [GPU drag reduction](tests/Test-DragReduction.ps1) | 48 GPU cases passed | Exact integer statistics; render/compute/OM UAV state and counters restored |
 | [DLC cache](tests/Test-DlcCache.ps1) | 13 checks passed | Invalidation, corruption, source replacement and path isolation |
-| [Options](tests/OptionStoreTests.cs) | 61 distinct keys checked | Config creation, preservation, dependencies and recovery |
+| [Options](tests/OptionStoreTests.cs) | 66 distinct keys checked | Config creation, preservation, dependencies and recovery |
+| [FAR pool cleanup](tests/Test-FarExposurePool.ps1) | 2,005 checks passed | Reset behavior and installed FAR bindings |
+| [CameraTools callbacks](tests/Test-CameraToolsLifetime.ps1) | 501 checks passed | Managed toolbar callback ownership |
+| [Firefly cleanup](tests/Test-FireflyLifetime.ps1) | 400 checks passed | Managed lifetime logic; does not exercise Unity rendering |
 | [FAR Rust preparation](tests/Test-FarRustFilter.ps1) | 1,425 checks; 80 owned Unity fixture cases | Filter parity, property readback, reference order, fallback and IL bindings |
 | [Staging lookup](tests/Test-StageDeltaV.ps1) | 149 checks passed | Per-reset searches compared with stock lookup behavior |
 | [Light buffer validity](tests/BufferValidityTests.cpp) | 935,000 differential checks passed | Full, empty and partially written buffers; 40 standalone native GPU content checks also passed |

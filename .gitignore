@@ -17,6 +17,7 @@
 /artifacts/coverage-kernel-build/
 /artifacts/mod-contract-tests/
 /artifacts/shader-constants-production/
+/artifacts/cloud-map-production/
 *.obj
 *.pdb
 *.ilk

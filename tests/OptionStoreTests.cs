@@ -19,14 +19,16 @@ static class OptionStoreTests
         try
         {
             Check(
-                Catalog.Features.Length == 65
-                && Catalog.Features.Select(f => f.Key).Distinct().Count() == 65,
-                "The option catalog must contain 65 distinct feature keys."
+                Catalog.Features.Length == 66
+                && Catalog.Features.Select(f => f.Key).Distinct().Count() == 66,
+                "The option catalog must contain 66 distinct feature keys."
             );
             var first = new OptionStore(path, f => f.Group == "EVE" ? "EVE missing" : null);
             Check(first.Enabled("Rendering.ShaderConstantUpdates"), "Supported shader constants enabled on first config creation");
             Check(!first.Enabled("Rendering.RustShaderSubmission"), "Experimental submission remains opt-in");
             Check(!first.Enabled("EVE.CloudShaderPacking"), "Cloud shader compilation remains opt-in");
+            Check(!first.Enabled("EVE.CloudMapPacking") && !Catalog.Features.First(f => f.Key == "EVE.CloudMapPacking").DefaultEnabled,
+                "Cloud map packing remains opt-in");
             Check(!first.Enabled("Stock.DeltaVResetIndex"), "Delta-V reset index remains opt-in until broader coverage");
             Check(!Catalog.Features.Any(f => f.Key == "Stock.AxisGroupParallel" || f.Key == "KSPCommunityFixes.RendererTreeBatch"), "Unaccepted parallel experiments are absent from the release catalog");
             Check(first.Enabled("FAR.ExposurePoolReset") && first.Enabled("Stock.OverlayCameraCleanup") && first.Enabled("Deferred.SsrResourceCleanup"), "Supported lifetime corrections default on");
@@ -48,6 +50,7 @@ static class OptionStoreTests
             Check(!second.Enabled("FAR.RustRendererFilter") && second.Enabled("FAR.RustRendererSetup"), "FAR options preserve independent manual choices");
             File.Delete(path);
             var regenerated = new OptionStore(path, f => null);
+            Check(!regenerated.Enabled("EVE.CloudMapPacking"), "Fresh compatible installations leave cloud map packing disabled");
             Check(
                 regenerated.Created
                 && regenerated.Enabled("Stock.ExhaustSync")
@@ -66,6 +69,11 @@ static class OptionStoreTests
             var unsupportedNative = new OptionStore(path, f => f.Requirement == "FarNative" ? "Unsupported native binding" : null);
             Check(!unsupportedNative.Enabled("FAR.RustRendererFilter") && !unsupportedNative.Enabled("FAR.RustRendererSetup"), "Unsupported FAR bindings retain their original path");
             string original = File.ReadAllText(path);
+            string legacy = original.Replace("CloudMapPacking = false", "");
+            File.WriteAllText(path, legacy);
+            Check(!new OptionStore(path, f => null).Enabled("EVE.CloudMapPacking"), "An existing config needs an explicit new map-packing flag");
+            Check(File.ReadAllText(path) == legacy, "Adding a feature never rewrites an existing config");
+            File.WriteAllText(path, original);
             foreach (var pair in new[]
             {
                 new[]
@@ -139,7 +147,7 @@ static class OptionStoreTests
 
             Check(failed && Directory.Exists(blocked), "Filesystem failure surfaces without replacing user directory");
             Check(Directory.GetFiles(root, "*.tmp").Length == 0, "Failed config publication cleans temporary file");
-            Console.WriteLine("Options: 65 feature keys checked; config creation, edits, dependencies and recovery passed.");
+            Console.WriteLine("Options: 66 feature keys checked; config creation, edits, dependencies and recovery passed.");
         }
         finally
         {

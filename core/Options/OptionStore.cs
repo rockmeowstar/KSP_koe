@@ -90,6 +90,7 @@ namespace KerbalOverEngineering.Options
             F("EVE", "CoverageZeroCull", "EVE"),
             F("EVE", "ShaderCorrectionGuards", "EveD3D11"),
             F("EVE", "CloudShaderPacking", "EveD3D11", null, false),
+            F("EVE", "CloudMapPacking", "EveD3D11", null, false),
             F("ParallaxContinued", "GpuSkyboxCopy", "Parallax"),
             F("ParallaxContinued", "DdsDirectUpload", "Parallax"),
             F("ParallaxContinued", "BiomeRgbPreparation", "Parallax"),

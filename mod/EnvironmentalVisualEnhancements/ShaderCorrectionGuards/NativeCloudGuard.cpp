@@ -29,6 +29,7 @@ using CreatePS = HRESULT(STDMETHODCALLTYPE *)(ID3D11Device *, const void *, SIZE
 using SetPS = void(STDMETHODCALLTYPE *)(ID3D11DeviceContext *, ID3D11PixelShader *, ID3D11ClassInstance *const *, UINT);
 static CreatePS originalCreate{};
 static SetPS originalSet{};
+#include "CloudMapCache.h"
 static BCRYPT_ALG_HANDLE algorithm{};
 static void *createTarget{};
 static void *setTarget{};
@@ -131,6 +132,7 @@ static HRESULT CreatePacked(ID3D11Device *device, const void *bytes, SIZE_T leng
                             ID3D11ClassLinkage *linkage, ID3D11PixelShader **output)
 {
     HRESULT originalResult = originalCreate(device, bytes, length, linkage, output);
+    if(SUCCEEDED(originalResult)&&output&&*output)CloudMaps::BuildProgram(device,bytes,length,linkage,*output);
     if (FAILED(originalResult) || !packingEnabled.load(std::memory_order_relaxed) || !bytes || !output || !*output || length < 32 ||
         length > UINT_MAX || device->GetFeatureLevel() < D3D_FEATURE_LEVEL_11_0)
         return originalResult;
@@ -198,6 +200,7 @@ static HRESULT CreatePacked(ID3D11Device *device, const void *bytes, SIZE_T leng
                     continue;
                 }
                 packingBuilt++;
+                CloudMaps::BuildProgram(device,code.data(),code.size(),linkage,binding->candidates[variant],true);
                 packingConversions += program->conversions[variant];
                 any = true;
             }
@@ -301,6 +304,7 @@ static void STDMETHODCALLTYPE Set(ID3D11DeviceContext *context, ID3D11PixelShade
             packingBinds[mode-1]++;
         }
     }
+    CloudMaps::Remember(context,shader,count);
     originalSet(context, shader, instances, count);
 }
 extern "C" __declspec(dllexport) void SetCloudGuardsEnabled(int value)
@@ -390,11 +394,13 @@ extern "C" __declspec(dllexport) int InitializeCloudGuards(const wchar_t *basePa
                                    &device, &level, &context);
     if (FAILED(hr))
         return -8;
+    auto releaseDevice=[](ID3D11Device *value){value->Release();};
+    auto releaseContext=[](ID3D11DeviceContext *value){value->Release();};
+    std::unique_ptr<ID3D11Device,decltype(releaseDevice)> deviceOwner(device,releaseDevice);
+    std::unique_ptr<ID3D11DeviceContext,decltype(releaseContext)> contextOwner(context,releaseContext);
     // AI-generated comment: Indices checked against the installed Windows SDK ID3D11* C vtables.
     createTarget = (*reinterpret_cast<void ***>(device))[15];
     setTarget = (*reinterpret_cast<void ***>(context))[9];
-    context->Release();
-    device->Release();
     auto status = MH_Initialize();
     if (status != MH_OK && status != MH_ERROR_ALREADY_INITIALIZED)
         return -9;
@@ -421,6 +427,7 @@ extern "C" __declspec(dllexport) int InitializeCloudGuards(const wchar_t *basePa
     }
     enabled = enable != 0;
     initialized = true;
+    CloudMaps::Initialize(device,context);
     return 0;
 }
 // AI-generated comment: Hooks and retained COM references intentionally live until process exit.
