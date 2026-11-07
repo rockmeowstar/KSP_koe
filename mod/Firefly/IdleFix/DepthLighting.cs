@@ -67,6 +67,7 @@ namespace FireflyIdleFix
             if (loader != null && KnownDeferred(loader.Assembly.Location))
                 replacements = loader.GetProperty("ReplacementShaders", BindingFlags.Public | BindingFlags.Static);
             harmony.Patch(AccessTools.Method(typeof(AtmoFxModule), "CreateVesselFx"), postfix: new HarmonyMethod(typeof(DepthLighting), "Register"));
+            harmony.Patch(AccessTools.Method(typeof(AtmoFxModule), "RemoveVesselFx"), prefix: new HarmonyMethod(typeof(DepthLighting), "Unregister"));
             Camera.onPreCull += Before;
             Camera.onPostRender += After;
             attached = true;
@@ -101,6 +102,15 @@ namespace FireflyIdleFix
                 Module = __instance,
                 Vessel = __instance.GetComponent<Vessel>()
             };
+        }
+
+        static void Unregister(AtmoFxModule __instance)
+        {
+            var fx = __instance.fxVessel;
+            if (fx != null && !ReferenceEquals(fx.airstreamCamera, null))
+                cameras.Remove(fx.airstreamCamera);
+            checkedMaterials.Clear();
+            materials.Clear();
         }
 
         static bool Eligible(Camera camera)

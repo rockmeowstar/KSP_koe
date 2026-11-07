@@ -25,6 +25,7 @@ namespace KoeFarEventPath
             Install("FAR.HitSortBuffers", SetupSort);
             Install("FAR.FairingLifecycle", SetupFairings);
             Install("FAR.ColliderOwnerIndex", ColliderOwners.Install);
+            ExposurePool.Apply();
             RustRendererFilter.Apply();
             RustRendererSetup.Apply();
             Destroy(this);

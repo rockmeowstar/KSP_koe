@@ -6,6 +6,9 @@
 /artifacts/delta-v-read-batch-tests/
 /artifacts/stage-delta-v-tests/
 /artifacts/far-rust-filter/
+/artifacts/firefly-lifetime-tests/
+/artifacts/far-exposure-pool-tests/
+/artifacts/camera-tools-lifetime-tests/
 /artifacts/rust-shader-submission/
 /artifacts/drag-reduction-tests/
 /artifacts/drag-reduction-build/

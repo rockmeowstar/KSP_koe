@@ -69,7 +69,7 @@ namespace KoeFarEventPath
                 if(!Compatible())throw new NotSupportedException("Renderer filtering API is already patched");
                 var patches=Harmony.GetPatchInfo(method);
                 if(patches!=null)foreach(var owner in patches.Owners)
-                    if(owner!="KerbalOverEngineering.FAR.RendererInitDispatch")throw new NotSupportedException("FAR reset already patched by "+owner);
+                    if(owner!="KerbalOverEngineering.FAR.RendererInitDispatch" && owner!="KerbalOverEngineering.FAR.ExposurePoolReset")throw new NotSupportedException("FAR reset already patched by "+owner);
                 byte[] engine=ReadEngine();
                 OwnerOffset=ReadFieldOffset(engine,0x926aac,new byte[]{0x48,0x8b,0x52});
                 LayerOffset=ReadFieldOffset(engine,0x93dacc,new byte[]{0x8b,0x41});

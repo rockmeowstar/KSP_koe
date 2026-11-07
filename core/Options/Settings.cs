@@ -137,6 +137,10 @@ namespace KerbalOverEngineering.Options
                     return AssemblyProblem("0Harmony", "212c5fc0-752a-439c-8523-73c986c00088") ?? FileProblem("GameData/000_Harmony/0Harmony.dll", "19ce60ac3280f72ec1751d36a40cb7e2fece2934df8345969dc7feb83bd633e4");
                 switch (feature.Requirement)
                 {
+                    case "Deferred":
+                        return AssemblyProblem("Deferred");
+                    case "CameraTools":
+                        return AssemblyProblem("CameraTools");
                     case "FAR":
                         return AssemblyProblem("FerramAerospaceResearch", "4c2950d0-b874-40bb-9f5c-1800283c5f75");
                     case "FarNative":

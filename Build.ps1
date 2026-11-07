@@ -90,6 +90,24 @@ $modules = @(
         Types = 'DatabaseSchedulerFix.Bootstrap'
     },
     @{
+        Path = 'stock/OverlayCameraFix'
+        Name = 'KoeOverlayLifetime'
+        Keys = 'Stock.OverlayCameraCleanup'
+        Types = 'KoeOverlayLifetime.Bootstrap'
+    },
+    @{
+        Path = 'mod/Deferred/SsrLifetimeFix'
+        Name = 'KoeSsrLifetime'
+        Keys = 'Deferred.SsrResourceCleanup'
+        Types = 'KoeSsrLifetime.Bootstrap'
+    },
+    @{
+        Path = 'mod/CameraTools/ToolbarLifetimeFix'
+        Name = 'KoeCameraToolsLifetime'
+        Keys = 'CameraTools.ToolbarLifetime'
+        Types = 'KoeCameraToolsLifetime.Bootstrap'
+    },
+    @{
         Path = 'stock/NativeTextureFix'
         Name = 'NativeTextureFix'
         Keys = 'Stock.NativeTextureEncoder'
@@ -128,7 +146,7 @@ $modules = @(
     @{
         Path = 'mod/FerramAerospaceResearch/EventPathFix'
         Name = 'KoeFarEventPath'
-        Keys = 'FAR.RendererInitDispatch,FAR.HitSortBuffers,FAR.FairingLifecycle,FAR.ColliderOwnerIndex,FAR.RustRendererFilter,FAR.RustRendererSetup'
+        Keys = 'FAR.RendererInitDispatch,FAR.HitSortBuffers,FAR.FairingLifecycle,FAR.ColliderOwnerIndex,FAR.RustRendererFilter,FAR.RustRendererSetup,FAR.ExposurePoolReset'
         Types = 'KoeFarEventPath.Bootstrap'
         Native = 'FarFilter'
     },

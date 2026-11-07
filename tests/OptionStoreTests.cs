@@ -19,16 +19,18 @@ static class OptionStoreTests
         try
         {
             Check(
-                Catalog.Features.Length == 61
-                && Catalog.Features.Select(f => f.Key).Distinct().Count() == 61,
-                "The option catalog must contain 61 distinct feature keys."
+                Catalog.Features.Length == 65
+                && Catalog.Features.Select(f => f.Key).Distinct().Count() == 65,
+                "The option catalog must contain 65 distinct feature keys."
             );
             var first = new OptionStore(path, f => f.Group == "EVE" ? "EVE missing" : null);
             Check(first.Enabled("Rendering.ShaderConstantUpdates"), "Supported shader constants enabled on first config creation");
             Check(!first.Enabled("Rendering.RustShaderSubmission"), "Experimental submission remains opt-in");
             Check(!first.Enabled("EVE.CloudShaderPacking"), "Cloud shader compilation remains opt-in");
             Check(!first.Enabled("Stock.DeltaVResetIndex"), "Delta-V reset index remains opt-in until broader coverage");
-            Check(!Catalog.Features.Any(f => f.Key == "Stock.AxisGroupParallel" || f.Key == "KSPCommunityFixes.RendererTreeBatch" || f.Key == "FAR.ExposurePoolReset"), "Unaccepted experiments are absent from the release catalog");
+            Check(!Catalog.Features.Any(f => f.Key == "Stock.AxisGroupParallel" || f.Key == "KSPCommunityFixes.RendererTreeBatch"), "Unaccepted parallel experiments are absent from the release catalog");
+            Check(first.Enabled("FAR.ExposurePoolReset") && first.Enabled("Stock.OverlayCameraCleanup") && first.Enabled("Deferred.SsrResourceCleanup"), "Supported lifetime corrections default on");
+            Check(first.Enabled("CameraTools.ToolbarLifetime"), "Supported toolbar ownership correction defaults on");
             Check(first.Enabled("FAR.RustRendererFilter"), "Accepted native FAR filter defaults on when supported");
             Check(first.Enabled("FAR.RustRendererSetup"), "Accepted native FAR property preparation defaults on when supported");
             Check(first.Created && first.Enabled("Stock.ExhaustSync") && !first.Enabled("EVE.CurveBakeHoist"), "Detect and generate");
@@ -137,7 +139,7 @@ static class OptionStoreTests
 
             Check(failed && Directory.Exists(blocked), "Filesystem failure surfaces without replacing user directory");
             Check(Directory.GetFiles(root, "*.tmp").Length == 0, "Failed config publication cleans temporary file");
-            Console.WriteLine("Options: 61 feature keys checked; config creation, edits, dependencies and recovery passed.");
+            Console.WriteLine("Options: 65 feature keys checked; config creation, edits, dependencies and recovery passed.");
         }
         finally
         {
