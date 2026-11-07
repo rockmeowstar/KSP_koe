@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="560" viewBox="0 0 1280 560" role="img" aria-labelledby="title desc">
+  <title id="title">KerbalOverEngineering 0.15.6</title>
+  <desc id="desc">Eight performance cards: loading, derived portrait FPS, flight physics, launch activation pause, KSC FPS, launchpad FPS, flight FPS and space/post-fuel FPS. Historical no-KOE comparison except activation pause, which uses the prior KOE build. The space card is a post-fuel proxy, not an isolated space measurement. Frame generation off.</desc>
+  <defs>
+    <linearGradient id="background" x2="1" y2="1"><stop stop-color="#101827"/><stop offset="1" stop-color="#151127"/></linearGradient>
+    <linearGradient id="accent"><stop stop-color="#5eead4"/><stop offset="1" stop-color="#a78bfa"/></linearGradient>
+  </defs>
+  <rect width="1280" height="560" rx="24" fill="url(#background)"/>
+  <g fill="none" stroke="#29324a">
+    <circle cx="1106" cy="116" r="70"/>
+    <ellipse cx="1106" cy="116" rx="121" ry="35" transform="rotate(-28 1106 116)"/>
+    <path d="M1090 48 C1134 91 1064 120 1115 184"/>
+    <path d="M1038 102 Q1106 73 1175 104 M1037 134 Q1106 162 1170 133"/>
+  </g>
+  <circle cx="1200" cy="63" r="5" fill="#5eead4"/><circle cx="990" cy="148" r="3" fill="#a78bfa"/>
+  <path d="M53 50 H117" stroke="url(#accent)" stroke-width="4" stroke-linecap="round"/>
+  <g font-family="Segoe UI,Arial,sans-serif">
+    <text x="52" y="89" fill="#9aa8c2" font-size="15" letter-spacing="3">KERBAL SPACE PROGRAM · PERFORMANCE PATCHES</text>
+    <text x="49" y="150" fill="#f1f5f9" font-size="52" font-weight="700">KerbalOverEngineering</text>
+    <text x="53" y="187" fill="#bac6da" font-size="19">Version 0.15.6</text>
+    <g transform="translate(52 226)">
+      <rect width="276" height="110" rx="14" fill="#172437" stroke="#2a3a52"/>
+      <text x="20" y="31" fill="#a9bad2" font-size="14">LOADING TIME</text>
+      <text x="20" y="76" fill="#5eead4" font-size="36" font-weight="700">−6.4%</text>
+      <text x="20" y="98" fill="#b9c5d8" font-size="12">74.49 → 69.74 s</text>
+    </g>
+    <g transform="translate(352 226)">
+      <rect width="276" height="110" rx="14" fill="#25212d" stroke="#47394b"/>
+      <text x="20" y="31" fill="#a9bad2" font-size="14">FLIGHT PORTRAIT FPS</text>
+      <text x="20" y="76" fill="#f9c97e" font-size="36" font-weight="700">+588.2%</text>
+      <text x="20" y="98" fill="#b9c5d8" font-size="12">3.09 → 21.27 FPS · derived from base FPS</text>
+    </g>
+    <g transform="translate(652 226)">
+      <rect width="276" height="110" rx="14" fill="#211d35" stroke="#403251"/>
+      <text x="20" y="31" fill="#a9bad2" font-size="14">FLIGHT PHYSICS RATE</text>
+      <text x="20" y="76" fill="#c4b5fd" font-size="36" font-weight="700">+67.2%</text>
+      <text x="20" y="98" fill="#b9c5d8" font-size="12">24.77 → 41.40 updates/s</text>
+    </g>
+    <g transform="translate(952 226)">
+      <rect width="276" height="110" rx="14" fill="#172a2c" stroke="#2a4445"/>
+      <text x="20" y="31" fill="#a9bad2" font-size="14">LAUNCH ACTIVATION PAUSE</text>
+      <text x="20" y="76" fill="#7de3bf" font-size="36" font-weight="700">−28.3%</text>
+      <text x="20" y="98" fill="#b9c5d8" font-size="12">187.41 → 134.33 ms · vs prior KOE</text>
+    </g>
+    <g transform="translate(52 360)">
+      <rect width="276" height="110" rx="14" fill="#172437" stroke="#2a3a52"/>
+      <text x="20" y="31" fill="#a9bad2" font-size="14">KSC FPS</text>
+      <text x="20" y="76" fill="#7dd3fc" font-size="36" font-weight="700">+52.7%</text>
+      <text x="20" y="98" fill="#b9c5d8" font-size="12">28.55 → 43.60 FPS</text>
+    </g>
+    <g transform="translate(352 360)">
+      <rect width="276" height="110" rx="14" fill="#1b2038" stroke="#353452"/>
+      <text x="20" y="31" fill="#a9bad2" font-size="14">LAUNCHPAD FPS</text>
+      <text x="20" y="76" fill="#a5b4fc" font-size="36" font-weight="700">+72.9%</text>
+      <text x="20" y="98" fill="#b9c5d8" font-size="12">20.86 → 36.07 FPS</text>
+    </g>
+    <g transform="translate(652 360)">
+      <rect width="276" height="110" rx="14" fill="#1b2038" stroke="#353452"/>
+      <text x="20" y="31" fill="#a9bad2" font-size="14">BASE FLIGHT FPS</text>
+      <text x="20" y="76" fill="#a5b4fc" font-size="36" font-weight="700">+71.8%</text>
+      <text x="20" y="98" fill="#b9c5d8" font-size="12">12.38 → 21.27 FPS</text>
+    </g>
+    <g transform="translate(952 360)">
+      <rect width="276" height="110" rx="14" fill="#211d35" stroke="#403251"/>
+      <text x="20" y="31" fill="#a9bad2" font-size="14">SPACE / POST-FUEL FPS</text>
+      <text x="20" y="76" fill="#c4b5fd" font-size="36" font-weight="700">+23.9%</text>
+      <text x="20" y="98" fill="#b9c5d8" font-size="12">18.40 → 22.81 FPS · post-fuel proxy</text>
+    </g>
+    <text x="53" y="506" fill="#8b9bb5" font-size="13">Historical no-KOE reference · activation pause vs prior KOE · RTX 4060 · frame generation off</text>
+    <text x="53" y="530" fill="#8b9bb5" font-size="13">Portrait rate is derived; the post-fuel window is not an isolated space measurement · details below</text>
+  </g>
+</svg>

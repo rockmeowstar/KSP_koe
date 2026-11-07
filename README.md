@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/readme-hero-0.15.6-far.svg" alt="KerbalOverEngineering 0.15.6 — latest full-flight results without generated frames" width="100%">
+  <img src="assets/readme-hero-0.15.6-eight.svg" alt="KerbalOverEngineering 0.15.6 — eight performance metrics without generated frames" width="100%">
 </p>
 
 <p align="center">
@@ -7,7 +7,7 @@
   <img src="https://img.shields.io/badge/KSP-1.12.5-64748b?style=flat-square" alt="KSP 1.12.5">
   <img src="https://img.shields.io/badge/Feature_flags-61-14b8a6?style=flat-square" alt="61 feature flags">
   <img src="https://img.shields.io/badge/Local_checks-verified_2026--11--07-22c55e?style=flat-square" alt="Local validation snapshot: November 7, 2026">
-  <a href="#ai-disclosure"><img src="https://img.shields.io/badge/AI_code-38%25_estimated-8b5cf6?style=flat-square" alt="Estimated AI-generated code: 38%"></a>
+  <a href="#ai-disclosure"><img src="https://img.shields.io/badge/AI_code-39%25_estimated-8b5cf6?style=flat-square" alt="Estimated AI-generated code: 39%"></a>
   <a href="#ai-disclosure"><img src="https://img.shields.io/badge/AI_tests-80%25_estimated-a78bfa?style=flat-square" alt="Estimated AI-generated tests: 80%"></a>
 </p>
 
@@ -81,6 +81,8 @@ The current total is **6.4% lower** (about 4.75 seconds), equivalent to **6.8% h
 
 [Historical reference tables](https://forum.kerbalspaceprogram.com/topic/232077-1125-kerbaloverengineering-koe-performance-optimization-for-ksp-and-its-mods/page/2/#findComment-4546383) · [Banner data](assets/benchmarks-0.15.6.json) · [0.15.6 release](https://github.com/rockmeowstar/ksp_koe/releases/tag/0.15.6)
 
+The launch-pause card uses the retained **previous KOE build**, not the no-KOE reference: activation took **187.41 → 134.33 ms (−28.3%)**. This measures the activation call, not the whole first-frame stall. The space/post-fuel card uses the **after-fuel window as a proxy**; a space-only interval was not separately recorded.
+
 ## Tests and completed checks
 
 The badge above records the **latest local validation snapshot**, not a continuously running CI result. Results include retained checks from earlier iterations. Unit/algorithm checks, static IL checks, native GPU checks and full-game runs are separate forms of evidence.
@@ -147,7 +149,7 @@ Formatting rules are contributor targets, not a measured style-compliance score 
 
 | Contribution | Estimated AI-generated share | Remaining share |
 |---|---:|---:|
-| Project code | **38%** | **62%** |
+| Project code | **39%** | **61%** |
 | Tests | **80%** | **20%** |
 
 **KOE uses AI-generated code and tests; it is not entirely AI-generated.** These are maintainer-provided estimates, not independently audited line counts, coverage figures or quality scores. The maintainer reviews changes; review and validation remain necessary regardless of authorship.

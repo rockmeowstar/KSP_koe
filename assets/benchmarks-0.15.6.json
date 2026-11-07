@@ -30,11 +30,19 @@
     "powered_flight": [3.09, 21.265693446172026]
   },
   "current_portrait_basis": "Visible portraits follow base rendered FPS; current value derived from the powered-flight renderer rate, not a separate portrait counter",
+  "launch_activation_ms": {
+    "previous_koe": 187.4098,
+    "current": 134.333,
+    "comparison": "Retained pre-FAR KOE full flight versus latest full flight; not the no-KOE reference",
+    "scope": "ActivateNextStage call, not the entire first-frame stall"
+  },
+  "space_fps_basis": "Uses the existing after-fuel mixed-altitude window as a proxy; no isolated space-only FPS was recorded",
   "limits": [
     "Different capture dates, cache states and observation windows; not a matched A/B",
     "The historical reference rebuilt the part cache; the current run did not clear part, application or OS caches",
     "Loading excludes scripted observation holds and actual flight; totals use unrounded measurements",
     "Powered flight includes ignition stalls; launchpad idle ends before ignition",
-    "The latest full run did not separately remeasure portrait FPS"
+    "The latest full run did not separately remeasure portrait FPS",
+    "Activation pause uses a different baseline (prior KOE); space card uses the post-fuel proxy"
   ]
 }
