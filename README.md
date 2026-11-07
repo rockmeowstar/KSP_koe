@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/readme-hero-0.15.6-eight.svg" alt="KerbalOverEngineering 0.15.6 — eight performance metrics without generated frames" width="100%">
+  <img src="assets/readme-hero-0.15.6-eight-r2.svg" alt="KerbalOverEngineering 0.15.6 — eight performance metrics without generated frames" width="100%">
 </p>
 
 <p align="center">
