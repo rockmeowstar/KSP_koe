@@ -6,7 +6,7 @@ New-Item -ItemType Directory -Force -Path $outputDirectory | Out-Null
 $managedDirectory = (Join-Path $GamePath 'KSP_x64_Data\Managed').Replace('/','\')
 $harmonyAssembly = (Join-Path $GamePath 'GameData\000_Harmony\0Harmony.dll').Replace('/','\')
 $optionsAssembly = Join-Path $projectRoot 'dist\GameData\KerbalOverEngineering\Plugins\KerbalOverEngineering.Options.dll'
-$compilerReferences = @('/nologo','/optimize+',"/reference:$managedDirectory\Assembly-CSharp.dll","/reference:$harmonyAssembly","/reference:$optionsAssembly")
+$compilerReferences = @('/nologo','/optimize+','/unsafe',"/reference:$managedDirectory\Assembly-CSharp.dll","/reference:$harmonyAssembly","/reference:$optionsAssembly")
 $compilerReferences += Get-ChildItem -LiteralPath $managedDirectory -Filter 'UnityEngine*.dll' | ForEach-Object {
     "/reference:$($_.FullName)"
 }

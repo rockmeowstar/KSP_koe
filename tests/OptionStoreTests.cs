@@ -19,14 +19,20 @@ static class OptionStoreTests
         try
         {
             Check(
-                Catalog.Features.Length == 56
-                && Catalog.Features.Select(f => f.Key).Distinct().Count() == 56,
-                "The option catalog must contain 56 distinct feature keys."
+                Catalog.Features.Length == 61
+                && Catalog.Features.Select(f => f.Key).Distinct().Count() == 61,
+                "The option catalog must contain 61 distinct feature keys."
             );
             var first = new OptionStore(path, f => f.Group == "EVE" ? "EVE missing" : null);
             Check(first.Enabled("Rendering.ShaderConstantUpdates"), "Supported shader constants enabled on first config creation");
+            Check(!first.Enabled("Rendering.RustShaderSubmission"), "Experimental submission remains opt-in");
+            Check(!first.Enabled("EVE.CloudShaderPacking"), "Cloud shader compilation remains opt-in");
+            Check(!first.Enabled("Stock.DeltaVResetIndex"), "Delta-V reset index remains opt-in until broader coverage");
+            Check(!Catalog.Features.Any(f => f.Key == "Stock.AxisGroupParallel" || f.Key == "KSPCommunityFixes.RendererTreeBatch" || f.Key == "FAR.ExposurePoolReset"), "Unaccepted experiments are absent from the release catalog");
+            Check(first.Enabled("FAR.RustRendererFilter"), "Accepted native FAR filter defaults on when supported");
+            Check(first.Enabled("FAR.RustRendererSetup"), "Accepted native FAR property preparation defaults on when supported");
             Check(first.Created && first.Enabled("Stock.ExhaustSync") && !first.Enabled("EVE.CurveBakeHoist"), "Detect and generate");
-            string manual = File.ReadAllText(path).Replace("ExhaustSync = true", "ExhaustSync = false") + "\n// user comment\n";
+            string manual = File.ReadAllText(path).Replace("ExhaustSync = true", "ExhaustSync = false").Replace("RustRendererFilter = true", "RustRendererFilter = false") + "\n// user comment\n";
             File.WriteAllText(path, manual);
             byte[] before = File.ReadAllBytes(path);
             var second = new OptionStore(path, f => null);
@@ -37,6 +43,7 @@ static class OptionStoreTests
                 "Preserve choices after dependency change"
             );
             Check(before.SequenceEqual(File.ReadAllBytes(path)), "Existing bytes preserved");
+            Check(!second.Enabled("FAR.RustRendererFilter") && second.Enabled("FAR.RustRendererSetup"), "FAR options preserve independent manual choices");
             File.Delete(path);
             var regenerated = new OptionStore(path, f => null);
             Check(
@@ -54,6 +61,8 @@ static class OptionStoreTests
             );
             var lostDependency = new OptionStore(path, f => f.Group == "EVE" ? "EVE removed" : null);
             Check(!lostDependency.Enabled("EVE.CurveBakeHoist"), "Runtime dependency guard beats true");
+            var unsupportedNative = new OptionStore(path, f => f.Requirement == "FarNative" ? "Unsupported native binding" : null);
+            Check(!unsupportedNative.Enabled("FAR.RustRendererFilter") && !unsupportedNative.Enabled("FAR.RustRendererSetup"), "Unsupported FAR bindings retain their original path");
             string original = File.ReadAllText(path);
             foreach (var pair in new[]
             {
@@ -128,7 +137,7 @@ static class OptionStoreTests
 
             Check(failed && Directory.Exists(blocked), "Filesystem failure surfaces without replacing user directory");
             Check(Directory.GetFiles(root, "*.tmp").Length == 0, "Failed config publication cleans temporary file");
-            Console.WriteLine("Options: 56 feature keys checked; config creation, edits, dependencies and recovery passed.");
+            Console.WriteLine("Options: 61 feature keys checked; config creation, edits, dependencies and recovery passed.");
         }
         finally
         {

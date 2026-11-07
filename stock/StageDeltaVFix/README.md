@@ -1,0 +1,11 @@
+# Delta-V reset searches
+
+`Stock.DeltaVResetIndex` replaces two nested searches inside the reviewed KSP 1.12.5 `VesselDeltaV.ResetPartInfo` body. It defaults to false while installation coverage is experimental.
+
+The prune loop uses a membership set before any stock mass/staging callbacks run. The existing-part loop uses a first-match index scoped to one reset invocation, rebuilding after structural list edits. Duplicate references retain their original first match. No index survives a reset call; nested resets have separate scopes. The stock calculation calls, additions, order, event delivery and staging tail remain intact.
+
+Unsupported stock assemblies, unexpected instruction layouts and pre-existing patches on reset/mass/staging methods prevent installation. This is an algorithmic managed-code change: moving managed object callbacks across a Rust ABI would not remove the repeated searches. It does not batch or suppress game events.
+
+The shipped Unity build compares two nonnull object wrappers by reference. The first-match index therefore uses reference equality, including when a subclass overrides object equality. Membership retains the equality semantics of `List<Part>.Contains`. Tests use that actual implementation rather than assuming equality by native instance ID. Shadow mode (`KOE_STAGE_INDEX_AUDIT=1`) also executes each original search and checks the selected position in the live installation; it adds overhead and is not used for FPS acceptance. Arbitrary third-party changes to public `DeltaVPartInfo.part` fields during mass/staging callbacks are outside the indexed snapshot contract. Mod combinations that do that require the feature to remain disabled.
+
+Local validation: 149 algorithm/IL checks; 56,580 live search comparisons with zero mismatches. With matched diagnostic timers, one start per version measured 200.659 → 148.912 ms for activation and 60.510 → 12.107 ms in engine-change delta-V handlers. The separate complete flight still had 331.880 and 262.323 ms initial frame intervals: this is a partial CPU improvement, not elimination of the entire ignition hitch. The later explicit comparer adds unit coverage for custom Part equality; that subclass case was not exercised by a live mod integration.

@@ -1,0 +1,7 @@
+{
+    "binarySha256":  "e38ad32070957a43bb5d241b9e2be259372e5bf6390ba88f12e98c1cb8c67295",
+    "sources":  {
+                    "Build-Filter.ps1":  "2fcba968f28f4c5007a4259b4b1b3fb3a27e9d1ac3c8ebb70a1bb5a3443b506c",
+                    "RendererFilter.rs":  "aaa681d2d43ebb6880472eef03d216e3a765b8296e5109a23f078e81fa9fb8cf"
+                }
+}

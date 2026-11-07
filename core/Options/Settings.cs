@@ -139,6 +139,10 @@ namespace KerbalOverEngineering.Options
                 {
                     case "FAR":
                         return AssemblyProblem("FerramAerospaceResearch", "4c2950d0-b874-40bb-9f5c-1800283c5f75");
+                    case "FarNative":
+                        problem = AssemblyProblem("FerramAerospaceResearch") ?? FileProblem("GameData/FerramAerospaceResearch/Plugins/FerramAerospaceResearch.dll", "cef968a7378b8a5a31fd3cfa3e5cf72fdca8c46248f8fe4280e56b42d8277fd5");
+                        if (problem != null) return problem;
+                        goto case "Native";
                     case "FreeIva":
                         return AssemblyProblem("FreeIva", "44f85c42-e554-4c92-842c-629cde208456");
                     case "KSPCF":

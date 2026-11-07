@@ -1,24 +1,26 @@
 <p align="center">
-  <img src="assets/readme-hero-0.15.5.svg" alt="KerbalOverEngineering 0.15.5 — current results without generated frames" width="100%">
+  <img src="assets/readme-hero-0.15.6.svg" alt="KerbalOverEngineering 0.15.6 — historical results without generated frames" width="100%">
 </p>
 
 <p align="center">
-  <a href="https://github.com/rockmeowstar/ksp_koe/releases/tag/0.15.5"><img src="https://img.shields.io/badge/release-0.15.5-8b5cf6?style=flat-square" alt="Release 0.15.5"></a>
+  <a href="https://github.com/rockmeowstar/ksp_koe/releases/tag/0.15.6"><img src="https://img.shields.io/badge/release-0.15.6-8b5cf6?style=flat-square" alt="Release 0.15.6"></a>
   <img src="https://img.shields.io/badge/KSP-1.12.5-64748b?style=flat-square" alt="KSP 1.12.5">
-  <img src="https://img.shields.io/badge/Feature_flags-56-14b8a6?style=flat-square" alt="56 feature flags">
+  <img src="https://img.shields.io/badge/Feature_flags-61-14b8a6?style=flat-square" alt="61 feature flags">
   <img src="https://img.shields.io/badge/Local_checks-verified_2026--11--07-22c55e?style=flat-square" alt="Local validation snapshot: November 7, 2026">
   <a href="#ai-disclosure"><img src="https://img.shields.io/badge/AI_code-38%25_estimated-8b5cf6?style=flat-square" alt="Estimated AI-generated code: 38%"></a>
   <a href="#ai-disclosure"><img src="https://img.shields.io/badge/AI_tests-80%25_estimated-a78bfa?style=flat-square" alt="Estimated AI-generated tests: 80%"></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/rockmeowstar/ksp_koe/releases/tag/0.15.5">Download 0.15.5</a> ·
+  <a href="https://github.com/rockmeowstar/ksp_koe/releases/tag/0.15.6">Download 0.15.6</a> ·
   <a href="https://spacedock.info/mod/4787/KerbalOverengineering%20(KOE)">SpaceDock / CKAN</a> ·
   <a href="https://forum.kerbalspaceprogram.com/topic/232077-1125-kerbaloverengineering-koe-performance-optimization-for-ksp-and-its-mods/">Forum</a> ·
   <a href="https://github.com/rockmeowstar/ksp_koe/issues">Report an issue</a>
 </p>
 
-KOE optimizes loading, resource handling, scene updates and rendering in KSP and supported mods. It combines **56 individually configurable options across 28 modules**. Frame generation is optional; most features do not require an NVIDIA GPU.
+KOE optimizes loading, resource handling, scene updates and rendering in KSP and supported mods. It combines **61 individually configurable options across 30 modules**. Frame generation is optional; most features do not require an NVIDIA GPU.
+
+0.15.6 adds Rust-backed FAR renderer filtering and property setup, optional indexed delta-v resets, and further Rust rendering/cloud optimizations. The two FAR options default on for supported fresh configs; existing manual settings remain intact.
 
 ## Install
 
@@ -92,7 +94,9 @@ The badge above records the **latest local validation snapshot**, not a continuo
 | [Loading budgets](tests/LoadingResourcesTests.cs) | 345 checks passed | Hardware-dependent worker/memory policy |
 | [GPU drag reduction](tests/Test-DragReduction.ps1) | 48 GPU cases passed | Exact integer statistics; render/compute/OM UAV state and counters restored |
 | [DLC cache](tests/Test-DlcCache.ps1) | 13 checks passed | Invalidation, corruption, source replacement and path isolation |
-| [Options](tests/OptionStoreTests.cs) | 56 distinct keys checked | Config creation, preservation, dependencies and recovery |
+| [Options](tests/OptionStoreTests.cs) | 61 distinct keys checked | Config creation, preservation, dependencies and recovery |
+| [FAR Rust preparation](tests/Test-FarRustFilter.ps1) | 1,425 checks; 80 owned Unity fixture cases | Filter parity, property readback, reference order, fallback and IL bindings |
+| [Staging lookup](tests/Test-StageDeltaV.ps1) | 149 checks passed | Per-reset searches compared with stock lookup behavior |
 | [Light buffer validity](tests/BufferValidityTests.cpp) | 935,000 differential checks passed | Full, empty and partially written buffers; 40 standalone native GPU content checks also passed |
 | [Map/unmap capture](tests/MapCaptureTests.cpp) | 1,787 native checks passed | Captured/GPU bytes, interleaved mappings, thread handoff, failed maps and table rehash |
 | [Capture lookup cache](tests/MapCaptureTests.cpp) | 2,532 native checks passed | Wanted-buffer transitions, context switches and capture/GPU byte parity with the cache enabled or disabled |

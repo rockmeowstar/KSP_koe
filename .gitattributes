@@ -1,0 +1,14 @@
+# Native manifests authenticate source bytes, including line endings.
+stock/ShaderConstantUpdates/UniformUpdate.rs -text
+mod/EnvironmentalVisualEnhancements/CloudLoopFix/CoverageKernel.rs -text
+stock/RustShaderSubmission/Submission.rs -text
+stock/RustShaderSubmission/ValueApply.rs -text
+stock/RustShaderSubmission/UnityAbi.rs -text
+stock/RustShaderSubmission/UnityAbi.h -text
+stock/RustShaderSubmission/NativeSubmission.cpp -text
+stock/RustShaderSubmission/Parallel.rs -text
+stock/RustShaderSubmission/PropertyIndex.rs -text
+stock/RustShaderSubmission/Build-Rust.ps1 -text
+stock/RustShaderSubmission/Build-Native.ps1 -text
+mod/FerramAerospaceResearch/EventPathFix/RendererFilter.rs -text
+mod/FerramAerospaceResearch/EventPathFix/Build-Filter.ps1 -text

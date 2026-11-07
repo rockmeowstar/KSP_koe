@@ -4,6 +4,9 @@
 /artifacts/compatibility-tests/
 /artifacts/event-path-tests/
 /artifacts/delta-v-read-batch-tests/
+/artifacts/stage-delta-v-tests/
+/artifacts/far-rust-filter/
+/artifacts/rust-shader-submission/
 /artifacts/drag-reduction-tests/
 /artifacts/drag-reduction-build/
 /artifacts/dlc-cache-tests/

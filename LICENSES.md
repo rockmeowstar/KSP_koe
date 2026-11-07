@@ -9,6 +9,7 @@ ExpansionBufferFix - MIT
 FrameGeneration - MIT (MinHook/HDE: BSD-2-Clause; NVIDIA interface headers: MIT)
 InstancedPointLights original integration source - MIT
 ShaderConstantUpdates - MIT (MinHook/HDE and local call-hook extension: BSD-2-Clause)
+RustShaderSubmission - MIT (MinHook/HDE: BSD-2-Clause; Rust standard library: MIT option selected)
 Rust core intrinsics - MIT OR Apache-2.0 (MIT option selected)
 InstancedPointLights Deferred-derived shaders and combined plugin binary - GPL-3.0
 Deferred upstream corresponding source - GPL-3.0
@@ -20,6 +21,7 @@ PqsNoiseFix - MIT
 PropellantRequestFix - MIT
 EventPathFix - MIT
 DeltaVReadBatchFix - MIT
+StageDeltaVFix - MIT
 FAR EventPathFix integration - MIT (external FAR runtime not redistributed)
 FreeIVA RefreshFix integration - MIT (external FreeIVA runtime not redistributed)
 KSPCommunityFixes CollisionStateFix integration - MIT (external KSPCF runtime not redistributed)
@@ -29,6 +31,7 @@ Waterfall RendererIndexFix integration - MIT (external Waterfall runtime not red
 EVE CloudLoopFix and Rust coverage kernel - MIT (Rust compiler support: MIT; see licenses/Rust-MIT.txt)
 EVE CurveBakeFix - MIT
 EVE ShaderCorrectionGuards - MIT (MinHook/HDE: BSD-2-Clause)
+EVE RustCloudRenderer - MIT (Rust standard library: MIT option selected; DXBC hashing: University of Illinois/NCSA)
 Firefly IdleFix - MIT
 Parallax Continued MenuSkyboxFix - MIT
 MinHook and HDE - BSD-2-Clause
@@ -38,3 +41,4 @@ ReShade API headers - MIT (BSD-3-Clause OR MIT; MIT option selected)
 External ReShade runtime - upstream terms (not redistributed)
 External NVIDIA driver - NVIDIA driver terms (not redistributed)
 External KSP, Unity and mod dependencies - respective upstream licenses (not redistributed)
+FAR Rust renderer-layer filter - MIT (Rust core/compiler support: MIT; see licenses/Rust-MIT.txt)

@@ -1,4 +1,4 @@
-param([string]$GamePath = $env:KSP_ROOT,[string]$ReleaseVersion = '0.15.5')
+param([string]$GamePath = $env:KSP_ROOT,[string]$ReleaseVersion = '0.15.6')
 $ErrorActionPreference = 'Stop'
 if ($ReleaseVersion -notmatch '^\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?$') {
     throw 'Invalid release version'
@@ -120,10 +120,17 @@ $modules = @(
         Types = 'KoeDeltaVReadBatchFix.Bootstrap'
     },
     @{
+        Path = 'stock/StageDeltaVFix'
+        Name = 'KoeStageDeltaVFix'
+        Keys = 'Stock.DeltaVResetIndex'
+        Types = 'KoeStageDeltaV.Bootstrap'
+    },
+    @{
         Path = 'mod/FerramAerospaceResearch/EventPathFix'
         Name = 'KoeFarEventPath'
-        Keys = 'FAR.RendererInitDispatch,FAR.HitSortBuffers,FAR.FairingLifecycle,FAR.ColliderOwnerIndex'
+        Keys = 'FAR.RendererInitDispatch,FAR.HitSortBuffers,FAR.FairingLifecycle,FAR.ColliderOwnerIndex,FAR.RustRendererFilter,FAR.RustRendererSetup'
         Types = 'KoeFarEventPath.Bootstrap'
+        Native = 'FarFilter'
     },
     @{
         Path = 'mod/FreeIva/RefreshFix'
@@ -184,7 +191,7 @@ $modules = @(
     @{
         Path = 'mod/EnvironmentalVisualEnhancements/ShaderCorrectionGuards'
         Name = 'KoeCloudGuards'
-        Keys = 'EVE.ShaderCorrectionGuards'
+        Keys = 'EVE.ShaderCorrectionGuards,EVE.CloudShaderPacking'
         Types = 'KerbalOverEngineering.CloudGuards.Bootstrap'
         Native = 'Cloud'
     },
@@ -208,22 +215,51 @@ $modules = @(
         Keys = 'Rendering.ShaderConstantUpdates'
         Types = 'KerbalOverEngineering.ShaderConstants.Bootstrap'
         Native = 'Uniforms'
+    },
+    @{
+        Path = 'stock/RustShaderSubmission'
+        Name = 'KoeRustShaderSubmission'
+        Keys = 'Rendering.RustShaderSubmission'
+        Types = 'KerbalOverEngineering.ShaderSubmission.Bootstrap'
+        Native = 'Submission'
     }
 )
 & "$projectRoot/mod/KSPCommunityFixes/DragReductionFix/Build-Native.ps1"
 & "$projectRoot/stock/ShaderConstantUpdates/Build-Native.ps1"
+$farFilterPath = "$projectRoot/mod/FerramAerospaceResearch/EventPathFix"
+$farFilterBuild = Get-Content -LiteralPath "$farFilterPath/native-assets/KoeFarRendererFilter.build.json" -Raw | ConvertFrom-Json
+foreach ($source in $farFilterBuild.sources.PSObject.Properties) {
+    if ((Get-FileHash -LiteralPath (Join-Path $farFilterPath $source.Name)).Hash.ToLowerInvariant() -ne $source.Value) {
+        throw "FAR Rust filter source changed: $($source.Name); rebuild and validate the native asset"
+    }
+}
+if ((Get-FileHash -LiteralPath "$farFilterPath/native-assets/KoeFarRendererFilter.dll").Hash.ToLowerInvariant() -ne $farFilterBuild.binarySha256) {
+    throw 'FAR Rust filter native asset differs from its build manifest'
+}
 $coveragePath = "$projectRoot/mod/EnvironmentalVisualEnhancements/CloudLoopFix"
 $coverageBuild = Get-Content -LiteralPath "$coveragePath/native-assets/KoeCoverageKernel.build.json" -Raw | ConvertFrom-Json
 if ((Get-FileHash -LiteralPath "$coveragePath/CoverageKernel.rs" -Algorithm SHA256).Hash.ToLowerInvariant() -ne $coverageBuild.sourceSha256) {
     throw 'Coverage Rust source changed; rebuild and validate the native coverage asset'
 }
+$submissionPath = "$projectRoot/stock/RustShaderSubmission"
+$submissionBuild = Get-Content -LiteralPath "$submissionPath/native-assets/KoeShaderSubmission.build.json" -Raw | ConvertFrom-Json
+foreach ($source in $submissionBuild.sources.PSObject.Properties) {
+    if ((Get-FileHash -LiteralPath (Join-Path $submissionPath $source.Name)).Hash.ToLowerInvariant() -ne $source.Value) {
+        throw 'Rust submission source changed; rebuild and validate the native submission asset'
+    }
+}
+if ((Get-FileHash -LiteralPath "$submissionPath/native-assets/KoeShaderSubmission.dll").Hash.ToLowerInvariant() -ne $submissionBuild.binarySha256) {
+    throw 'Rust submission native asset differs from its build manifest'
+}
 $nativeFiles = @{
+    Submission = ,@('KoeShaderSubmission.dll',$null)
     Coverage = ,@('KoeCoverageKernel.dll',$coverageBuild.binarySha256)
     Uniforms = ,@('KoeUniformKernel.dll',$null)
     Drag = ,@('KoeDragReduction.dll',$null)
-    Cloud = @(@('KoeCloudGuard.dll','616f289df2a26ea15dbccdc8c6275ad76ca77805c96ae4661a2216b536cb2ccd'),@('base-guarded.koepatch','544be245373e4a7bc0dfa0df0a8254d4fb170738c61dcfc361afacb30bed9bee'),@('top-guarded.koepatch','97db0080cb6c833a317e746b465618a96ffb30f88ad80f31d28b649e80365131'))
+    Cloud = @(@('KoeCloudGuard.dll','322714ab7e5e704936745091a781e770f5c5dcf31b7e895362433b0da584b8a2'),@('base-guarded.koepatch','544be245373e4a7bc0dfa0df0a8254d4fb170738c61dcfc361afacb30bed9bee'),@('top-guarded.koepatch','97db0080cb6c833a317e746b465618a96ffb30f88ad80f31d28b649e80365131'))
     Lights = @(@('KSP_x64_Data/Plugins/KoeInstancedLights.dll','75d232aae1885345270bbc979c642e83b3fe3a4649ad17daf99ac7ae7ca51bf4'),@('GameData/KerbalOverEngineeringExperiments/InstancedLights/light0-ps.shdr','52f0befe1d3fa291a4bebef94502ef14c162f4a3d86cd579a87da9664249bef7'),@('GameData/KerbalOverEngineeringExperiments/InstancedLights/light0-vs.shdr','18f304a7ebaf6499cde707116f7cda855078b930ae59b750ed6b5b8a0c46e496'),@('GameData/KerbalOverEngineeringExperiments/InstancedLights/light1-ps.shdr','bddc54bcdf16b256e3fdc3eabf6ea7675717597293d40bbfc2deb397878e81c8'),@('GameData/KerbalOverEngineeringExperiments/InstancedLights/light1-vs.shdr','18f304a7ebaf6499cde707116f7cda855078b930ae59b750ed6b5b8a0c46e496'))
     Frame = ,@('KSP_x64_Data/Plugins/KoeFrameGeneration.dll','732fbe935aaef00f1fa4debcec73ea37b45b74921402c7d546c3e520f28155af')
+    FarFilter = ,@('KoeFarRendererFilter.dll',$farFilterBuild.binarySha256)
 }
 foreach ($module in $modules) {
     $moduleName = $module.Name
@@ -234,6 +270,9 @@ foreach ($module in $modules) {
             $_.FullName
         })
     $embeddedResources = @()
+    foreach ($sharedSource in $module.SharedSources) {
+        $sourceFiles += Join-Path $projectRoot $sharedSource
+    }
     if ($moduleName -eq 'KoeCfDlcCache') {
         $sourceFiles += @("$projectRoot\stock\DlcCacheFix\CacheStore.cs", "$projectRoot\stock\DlcCacheFix\ModFingerprint.cs")
     }
@@ -290,6 +329,7 @@ Write-KoeZip -SourceDirectory $projectRoot -Destination "$projectRoot\dist\Kerba
     'Build-PointLights.ps1'
     'artifacts/native-texture-production/NativeTextureEncoder.bin'
     '.gitignore'
+    '.gitattributes'
     '.editorconfig'
     '.clang-format'
 )
