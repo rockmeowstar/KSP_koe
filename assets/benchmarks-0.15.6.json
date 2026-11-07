@@ -1,0 +1,40 @@
+{
+  "version": "0.15.6",
+  "comparison": "Historical no-KOE reference (2026-11-05) versus latest full flight (2026-11-07)",
+  "matched_pair": false,
+  "frame_generation": false,
+  "baseline_source": "Published 0.15.3 comparison; KSPCommunityFixes enabled, all KOE performance modules absent",
+  "precision": "Reference values are published rounded values; current values retain telemetry precision; percentages are approximate",
+  "hardware": "Intel Core i5-14600K, 64 GiB RAM, RTX 4060 8 GiB, 2560x1440, D3D11, NVIDIA 621.01",
+  "craft": "01KOE, 353 parts before launch",
+  "loading_seconds": {
+    "main_menu": [55.12, 51.838913],
+    "save": [3.24, 3.208665],
+    "vab": [3.06, 3.055815],
+    "flight": [13.07, 11.641208],
+    "total": [74.49, 69.744602]
+  },
+  "base_fps": {
+    "ksc": [28.55, 43.59883757933918],
+    "launchpad_idle": [20.86, 36.074796533357016],
+    "powered_flight": [12.38, 21.265693446172026],
+    "after_fuel": [18.40, 22.80563893224118]
+  },
+  "physics_updates_per_second": {
+    "ksc": [48.74, 49.77036253349222],
+    "launchpad_idle": [41.17, 49.98817071596815],
+    "powered_flight": [24.77, 41.40422999590384],
+    "after_fuel": [36.40, 43.61951900577134]
+  },
+  "portrait_fps": {
+    "powered_flight": [3.09, 21.265693446172026]
+  },
+  "current_portrait_basis": "Visible portraits follow base rendered FPS; current value derived from the powered-flight renderer rate, not a separate portrait counter",
+  "limits": [
+    "Different capture dates, cache states and observation windows; not a matched A/B",
+    "The historical reference rebuilt the part cache; the current run did not clear part, application or OS caches",
+    "Loading excludes scripted observation holds and actual flight; totals use unrounded measurements",
+    "Powered flight includes ignition stalls; launchpad idle ends before ignition",
+    "The latest full run did not separately remeasure portrait FPS"
+  ]
+}

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/readme-hero-0.15.6.svg" alt="KerbalOverEngineering 0.15.6 — historical results without generated frames" width="100%">
+  <img src="assets/readme-hero-0.15.6-far.svg" alt="KerbalOverEngineering 0.15.6 — latest full-flight results without generated frames" width="100%">
 </p>
 
 <p align="center">
@@ -56,30 +56,30 @@ The automatic material-instancing experiment was removed: the tested Deferred bu
 
 ## Measured performance
 
-**0.15.5 snapshot · November 7, 2026.** The current full flight is compared with the **published November 5 reference, with KSPCommunityFixes enabled and KOE completely removed**. This is a historical comparison, not a new matched A/B. Cache states and observation windows differ; the figures describe these runs and do not guarantee the same gain on another machine. Percentages are approximate because the historical reference values are rounded.
+**0.15.6 snapshot · November 7, 2026.** The latest full flight with both accepted FAR fixes is compared with the **published November 5 reference, with KSPCommunityFixes enabled and KOE completely removed**. This is a historical comparison, not a new matched A/B. Cache states and observation windows differ; the figures describe these runs and do not guarantee the same gain on another machine. Percentages are approximate because the historical reference values are rounded.
 
 Intel Core i5-14600K · 64 GiB RAM · RTX 4060 8 GiB · 2560 × 1440 · D3D11 · NVIDIA 621.01. Craft: **01KOE, 353 parts**.
 
 | Loading stage | KSPCF | KSPCF + KOE |
 |---|---:|---:|
-| Main menu | 55.12 s | 51.26 s |
-| Save entry | 3.24 s | 2.93 s |
-| VAB | 3.06 s | 3.14 s |
-| Flight entry | 13.07 s | 11.56 s |
-| **Total** | **74.49 s** | **68.89 s** |
+| Main menu | 55.12 s | 51.84 s |
+| Save entry | 3.24 s | 3.21 s |
+| VAB | 3.06 s | 3.06 s |
+| Flight entry | 13.07 s | 11.64 s |
+| **Total** | **74.49 s** | **69.74 s** |
 
-The current total is **7.5% lower** (about 5.60 seconds), equivalent to **8.1% higher loading throughput** than the historical reference. The November 5 reference rebuilt the part cache; the current run retained existing part/application/OS caches, and module changes may invalidate individual caches. Intentional measurement holds are excluded. This is not a matched cold-start improvement measurement.
+The current total is **6.4% lower** (about 4.75 seconds), equivalent to **6.8% higher loading throughput** than the historical reference. Totals use unrounded measurements. The November 5 reference rebuilt the part cache; the current run retained existing part/application/OS caches, and module changes may invalidate individual caches. Intentional measurement holds are excluded. This is not a matched cold-start improvement measurement.
 
 | Stage | Base FPS: KSPCF → + KOE | Change | Physics updates/s: KSPCF → + KOE | Change |
 |---|---:|---:|---:|---:|
-| KSC | 28.55 → 43.59 | +52.7% | 48.74 → 50.09 | +2.8% |
-| Launchpad idle | 20.86 → 34.45 | +65.1% | 41.17 → 49.55 | +20.4% |
-| Powered flight | 12.38 → 21.39 | +72.8% | 24.77 → 41.59 | +67.9% |
-| After fuel | 18.40 → 23.37 | +27.0% | 36.40 → 45.65 | +25.4% |
+| KSC | 28.55 → 43.60 | +52.7% | 48.74 → 49.77 | +2.1% |
+| Launchpad idle | 20.86 → 36.07 | +72.9% | 41.17 → 49.99 | +21.4% |
+| Powered flight | 12.38 → 21.27 | +71.8% | 24.77 → 41.40 | +67.2% |
+| After fuel | 18.40 → 22.81 | +23.9% | 36.40 → 43.62 | +19.8% |
 
-**Frame generation was disabled in the current run.** Physics means real `FixedUpdate` calls per second. Differences below 5% are treated as ordinary fluctuation. Visible portraits follow base rendered FPS, so the current flight portrait value is **21.39 FPS**, approximately **+592.2%** against the 3.09 FPS reference. This current portrait value follows the renderer rate; it was not sampled with a separate portrait counter during this run.
+**Frame generation was disabled in the current run.** Physics means real `FixedUpdate` calls per second. Powered-flight FPS includes ignition stalls; launchpad idle ends before ignition. Differences below 5% are treated as ordinary fluctuation. Visible portraits follow base rendered FPS, so the current flight portrait value is **21.27 FPS**, approximately **+588.2%** against the 3.09 FPS reference. This current portrait value follows the renderer rate; it was not sampled with a separate portrait counter during this run.
 
-[Historical reference tables](https://forum.kerbalspaceprogram.com/topic/232077-1125-kerbaloverengineering-koe-performance-optimization-for-ksp-and-its-mods/page/2/#findComment-4546383) · [Banner data](assets/benchmarks-0.15.5.json) · [0.15.5 release](https://github.com/rockmeowstar/ksp_koe/releases/tag/0.15.5)
+[Historical reference tables](https://forum.kerbalspaceprogram.com/topic/232077-1125-kerbaloverengineering-koe-performance-optimization-for-ksp-and-its-mods/page/2/#findComment-4546383) · [Banner data](assets/benchmarks-0.15.6.json) · [0.15.6 release](https://github.com/rockmeowstar/ksp_koe/releases/tag/0.15.6)
 
 ## Tests and completed checks
 
