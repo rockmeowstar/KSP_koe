@@ -1,4 +1,8 @@
 <p align="center">
+  <img src="assets/readme-hero-0.15.7-eight.svg" alt="KerbalOverEngineering 0.15.7 — eight retained full-cycle performance metrics" width="100%">
+</p>
+
+<p align="center">
   <img src="assets/readme-hero-0.15.7.svg" alt="KerbalOverEngineering 0.15.7 — six flight configurations, base FPS and physics rates" width="100%">
 </p>
 
