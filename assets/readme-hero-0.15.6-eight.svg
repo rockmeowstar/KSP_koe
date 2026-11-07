@@ -67,6 +67,5 @@
       <text x="20" y="98" fill="#b9c5d8" font-size="12">18.40 → 22.81 FPS · post-fuel proxy</text>
     </g>
     <text x="53" y="506" fill="#8b9bb5" font-size="13">Historical no-KOE reference · activation pause vs prior KOE · RTX 4060 · frame generation off</text>
-    <text x="53" y="530" fill="#8b9bb5" font-size="13">Portrait rate is derived; the post-fuel window is not an isolated space measurement · details below</text>
   </g>
 </svg>
