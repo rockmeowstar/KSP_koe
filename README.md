@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/readme-hero-0.15.8-eight-r2.svg" alt="KerbalOverEngineering 0.15.8 — eight retained full-cycle performance metrics" width="100%">
+  <img src="assets/readme-hero-0.15.8-eight-r3.svg" alt="KerbalOverEngineering 0.15.8 — eight retained full-cycle performance metrics" width="100%">
 </p>
 
 <p align="center">
@@ -86,7 +86,7 @@ The first banner uses the retained November 8 full cycle with the accepted featu
 | After-fuel FPS | 18.40 | 24.97 |
 | Powered-flight physics/s | 24.77 | 41.89 |
 
-Visible portrait FPS is derived from the base flight rate, 21.70 FPS; it was not independently remeasured. The launch card compares the same `ActivateNextStage` call: **134.33 → 159.18 ms (+18.5%)** against a prior KOE sample. These are separate retained runs, not a matched A/B or a proven optimization-induced regression. The space card remains a post-fuel proxy. [Full-cycle banner data](assets/benchmarks-0.15.8.json).
+Visible portrait FPS is derived from the base flight rate, 21.70 FPS; it was not independently remeasured. The launch card shows **159.18 ms with KOE** for the `ActivateNextStage` call. A no-KOE reference for this specific call has not been verified, so no improvement or regression percentage is claimed. The space card remains a post-fuel proxy. [Full-cycle banner data](assets/benchmarks-0.15.8.json).
 
 The newest three-sample middle-flight check of the accepted configuration measured **21.25 FPS / 41.51 physics steps/s**; after fuel, **23.96 FPS / 47.11 physics steps/s**. These short windows and the full-flight averages cover different intervals. The NormalizeRsq candidate provided no measured benefit and is excluded.
 

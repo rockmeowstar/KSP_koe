@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1280" height="560" viewBox="0 0 1280 560" role="img" aria-labelledby="title desc">
   <title id="title">KerbalOverEngineering 0.15.8</title>
-  <desc id="desc">Eight performance cards: loading, derived portrait FPS, flight physics, launch activation time, KSC FPS, launchpad FPS, flight FPS and space/post-fuel FPS. Historical no-KOE comparison except activation time, which compares the same ActivateNextStage call with a prior KOE sample. Separate runs are not a matched A/B. The space card is a post-fuel proxy, not an isolated space measurement. Frame generation off.</desc>
+  <desc id="desc">Eight performance cards: loading, derived portrait FPS, flight physics, launch activation time, KSC FPS, launchpad FPS, flight FPS and space/post-fuel FPS. Activation time is a KOE-only measurement; a no-KOE activation reference has not been verified and no percentage is claimed. The other comparisons use the historical no-KOE reference. The space card is a post-fuel proxy, not an isolated space measurement. Frame generation off.</desc>
   <defs>
     <linearGradient id="background" x2="1" y2="1"><stop stop-color="#101827"/><stop offset="1" stop-color="#151127"/></linearGradient>
     <linearGradient id="accent"><stop stop-color="#5eead4"/><stop offset="1" stop-color="#a78bfa"/></linearGradient>
@@ -39,8 +39,8 @@
     <g transform="translate(952 226)">
       <rect width="276" height="110" rx="14" fill="#172a2c" stroke="#2a4445"/>
       <text x="20" y="31" fill="#a9bad2" font-size="14">LAUNCH ACTIVATION TIME</text>
-      <text x="20" y="76" fill="#f9c97e" font-size="36" font-weight="700">+18.5%</text>
-      <text x="20" y="98" fill="#b9c5d8" font-size="12">134.33 → 159.18 ms · vs prior KOE</text>
+      <text x="20" y="76" fill="#bac6da" font-size="36" font-weight="700">159.18 ms</text>
+      <text x="20" y="98" fill="#b9c5d8" font-size="12">KOE only · no-KOE comparison pending</text>
     </g>
     <g transform="translate(52 360)">
       <rect width="276" height="110" rx="14" fill="#172437" stroke="#2a3a52"/>

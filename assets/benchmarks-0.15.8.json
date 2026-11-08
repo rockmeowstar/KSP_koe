@@ -79,14 +79,14 @@
     "Loading excludes scripted observation holds and actual flight; totals use unrounded measurements",
     "Powered flight includes ignition stalls; launchpad idle ends before ignition",
     "The latest full run did not separately remeasure portrait FPS",
-    "Activation time compares the same ActivateNextStage call across separate retained KOE runs, not a matched A/B or a no-KOE reference",
+    "A no-KOE reference for the ActivateNextStage call has not been verified; no activation improvement or regression percentage is claimed",
     "This full cycle predates packaging; source state and enabled features are tracked separately from release artifacts"
   ],
   "launch_activation_ms": {
-    "previous_koe": 134.333,
+    "without_koe": null,
     "current": 159.1791,
-    "change_percent": 18.495901974942864,
-    "comparison": "Previous retained KOE sample versus November 8 accepted full cycle; not a matched A/B",
+    "change_percent": null,
+    "comparison": "KOE-only measurement; no-KOE activation reference pending verification",
     "scope": "ActivateNextStage call, not the entire first-frame stall"
   }
 }
