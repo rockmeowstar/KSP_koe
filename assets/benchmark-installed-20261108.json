@@ -1,0 +1,38 @@
+{
+  "description": "One installed test-build run; binary set differs from 0.16.0 release archive; frame generation off.",
+  "loading_seconds": {
+    "startup": 59.676221,
+    "save": 3.642787,
+    "editor": 3.465969,
+    "flight": 11.327744,
+    "total": 78.11272
+  },
+  "activation_ms": 124.4359,
+  "stages": {
+    "KSC": {
+      "fps": 37.34486799164856,
+      "physics": 49.859904181879315,
+      "portrait": 0.0,
+      "seconds": 9.9879855
+    },
+    "Launch pad": {
+      "fps": 34.42720895731173,
+      "physics": 49.95320515374643,
+      "portrait": 34.42720895731173,
+      "seconds": 11.8510914
+    },
+    "Powered flight": {
+      "fps": 21.664848503783258,
+      "physics": 41.69287195594399,
+      "portrait": 21.664848503783258,
+      "seconds": 119.133074
+    },
+    "After fuel": {
+      "fps": 25.702176174140916,
+      "physics": 47.287988195392074,
+      "portrait": 25.702176174140916,
+      "seconds": 9.9602461
+    }
+  },
+  "source": "D:\\CATS\\KerbalOverEngineering\\artifacts\\flight-core-20261108\\current-0160-full-20261108"
+}

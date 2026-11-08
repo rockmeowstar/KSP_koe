@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="560" viewBox="0 0 1280 560" role="img" aria-labelledby="title desc">
+  <title id="title">KerbalOverEngineering installed build benchmark</title>
+  <desc id="desc">One full flight on the installed test build, which differs from the 0.16.0 release archive. Frame generation off. Startup is process launch to main menu ready. Other banners are historical.</desc>
+  <defs>
+    <linearGradient id="background" x2="1" y2="1"><stop stop-color="#101827"/><stop offset="1" stop-color="#151127"/></linearGradient>
+    <linearGradient id="accent"><stop stop-color="#5eead4"/><stop offset="1" stop-color="#a78bfa"/></linearGradient>
+  </defs>
+  <rect width="1280" height="560" rx="24" fill="url(#background)"/>
+  <g fill="none" stroke="#29324a">
+    <circle cx="1106" cy="116" r="70"/>
+    <ellipse cx="1106" cy="116" rx="121" ry="35" transform="rotate(-28 1106 116)"/>
+    <path d="M1090 48 C1134 91 1064 120 1115 184"/>
+    <path d="M1038 102 Q1106 73 1175 104 M1037 134 Q1106 162 1170 133"/>
+  </g>
+  <circle cx="1200" cy="63" r="5" fill="#5eead4"/><circle cx="990" cy="148" r="3" fill="#a78bfa"/>
+  <path d="M53 50 H117" stroke="url(#accent)" stroke-width="4" stroke-linecap="round"/>
+  <g font-family="Segoe UI,Arial,sans-serif">
+    <text x="52" y="89" fill="#9aa8c2" font-size="15" letter-spacing="3">KERBAL SPACE PROGRAM · PERFORMANCE PATCHES</text>
+    <text x="49" y="150" fill="#f1f5f9" font-size="52" font-weight="700">KerbalOverEngineering</text>
+    <text x="53" y="187" fill="#bac6da" font-size="19">Latest measurement</text>
+    <g transform="translate(52 226)">
+      <rect width="276" height="110" rx="14" fill="#172437" stroke="#2a3a52"/>
+      <text x="20" y="31" fill="#a9bad2" font-size="14">MAIN MENU LOAD</text>
+      <text x="20" y="76" fill="#5eead4" font-size="36" font-weight="700">59.68</text>
+      <text x="20" y="98" fill="#b9c5d8" font-size="12">s · one run</text>
+    </g>
+    <g transform="translate(352 226)">
+      <rect width="276" height="110" rx="14" fill="#25212d" stroke="#47394b"/>
+      <text x="20" y="31" fill="#a9bad2" font-size="14">FLIGHT PORTRAIT FPS</text>
+      <text x="20" y="76" fill="#5eead4" font-size="36" font-weight="700">21.66</text>
+      <text x="20" y="98" fill="#b9c5d8" font-size="12">FPS · one run</text>
+    </g>
+    <g transform="translate(652 226)">
+      <rect width="276" height="110" rx="14" fill="#211d35" stroke="#403251"/>
+      <text x="20" y="31" fill="#a9bad2" font-size="14">FLIGHT PHYSICS RATE</text>
+      <text x="20" y="76" fill="#5eead4" font-size="36" font-weight="700">41.69</text>
+      <text x="20" y="98" fill="#b9c5d8" font-size="12">updates/s · one run</text>
+    </g>
+    <g transform="translate(952 226)">
+      <rect width="276" height="110" rx="14" fill="#172a2c" stroke="#2a4445"/>
+      <text x="20" y="31" fill="#a9bad2" font-size="14">LAUNCH ACTIVATION</text>
+      <text x="20" y="76" fill="#5eead4" font-size="36" font-weight="700">124.44</text>
+      <text x="20" y="98" fill="#b9c5d8" font-size="12">ms · one run</text>
+    </g>
+    <g transform="translate(52 360)">
+      <rect width="276" height="110" rx="14" fill="#172437" stroke="#2a3a52"/>
+      <text x="20" y="31" fill="#a9bad2" font-size="14">KSC FPS</text>
+      <text x="20" y="76" fill="#5eead4" font-size="36" font-weight="700">37.34</text>
+      <text x="20" y="98" fill="#b9c5d8" font-size="12">FPS · one run</text>
+    </g>
+    <g transform="translate(352 360)">
+      <rect width="276" height="110" rx="14" fill="#1b2038" stroke="#353452"/>
+      <text x="20" y="31" fill="#a9bad2" font-size="14">LAUNCHPAD FPS</text>
+      <text x="20" y="76" fill="#5eead4" font-size="36" font-weight="700">34.43</text>
+      <text x="20" y="98" fill="#b9c5d8" font-size="12">FPS · one run</text>
+    </g>
+    <g transform="translate(652 360)">
+      <rect width="276" height="110" rx="14" fill="#1b2038" stroke="#353452"/>
+      <text x="20" y="31" fill="#a9bad2" font-size="14">BASE FLIGHT FPS</text>
+      <text x="20" y="76" fill="#5eead4" font-size="36" font-weight="700">21.66</text>
+      <text x="20" y="98" fill="#b9c5d8" font-size="12">FPS · one run</text>
+    </g>
+    <g transform="translate(952 360)">
+      <rect width="276" height="110" rx="14" fill="#211d35" stroke="#403251"/>
+      <text x="20" y="31" fill="#a9bad2" font-size="14">POST-FUEL FPS</text>
+      <text x="20" y="76" fill="#5eead4" font-size="36" font-weight="700">25.70</text>
+      <text x="20" y="98" fill="#b9c5d8" font-size="12">FPS · one run</text>
+    </g>
+  </g>
+</svg>

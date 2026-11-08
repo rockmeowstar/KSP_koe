@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/readme-hero-0.15.8-eight-fresh.svg" alt="KerbalOverEngineering 0.15.8 — eight metrics from the new no-KOE / KOE full-cycle pair" width="100%">
+  <img src="assets/readme-hero-installed-20261108.svg" alt="Installed test build — one full-flight measurement" width="100%">
 </p>
 
 <p align="center">
@@ -28,7 +28,7 @@
 
 KOE optimizes loading, resource handling, scene updates and rendering in KSP and supported mods. It combines **73 individually configurable options across 38 modules**. Frame generation is optional; most features do not require an NVIDIA GPU.
 
-**0.16.0** adds a KOE toolbar button for editing settings in-game. Most changes require restarting KSP; the window indicates which options can apply immediately. The performance figures below are historical 0.15.8 measurements.
+**0.16.0** adds a KOE toolbar button for editing settings in-game. Most changes require restarting KSP; the window indicates which options can apply immediately. The first banner shows one recent installed-build run; the comparison banners below retain historical measurements.
 
 **0.15.8** brings together the accepted rendering and loading fixes:
 
@@ -75,9 +75,30 @@ The automatic material-instancing experiment was removed: the tested Deferred bu
 
 ## Measured performance
 
-### New full-cycle comparison (0.15.8)
+### Latest installed-build run
 
-One new complete run without any KOE performance modules, then one with the published 0.15.8 package. KSPCF, FAR and the other mods remain installed in both. Same craft, settings, controller and v4 flight schedule; 353 parts in VAB and 345 in flight. Frame generation is off. Every number in the first banner comes from this pair.
+One complete run with frame generation off. This installed test build includes the 0.16.0 settings interface, but its binary set differs from the published 0.16.0 archive. The following are single-run observations, not a new matched comparison. Existing caches were retained and the OS cache was not cleared.
+
+| Loading stage | Seconds |
+|---|---:|
+| Process start to main menu | 59.68 |
+| Save entry | 3.64 |
+| VAB | 3.47 |
+| Flight entry | 11.33 |
+| Total, excluding observation holds | 78.11 |
+
+| Stage | Base FPS | Physics steps/s |
+|---|---:|---:|
+| KSC | 37.34 | 49.86 |
+| Launch pad | 34.43 | 49.95 |
+| Powered flight | 21.66 | 41.69 |
+| After fuel | 25.70 | 47.29 |
+
+Stage activation: 124.44 ms. Portrait FPS during powered flight: 21.66. Post-fuel is not a separate deep-space scenario.
+
+### Historical full-cycle comparison (0.15.8)
+
+One new complete run without any KOE performance modules, then one with the published 0.15.8 package. KSPCF, FAR and the other mods remain installed in both. Same craft, settings, controller and v4 flight schedule; 353 parts in VAB and 345 in flight. Frame generation is off. The figures in this table come from that pair.
 
 | Loading stage | No KOE | KOE 0.15.8 |
 |---|---:|---:|
