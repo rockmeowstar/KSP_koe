@@ -77,6 +77,8 @@ The automatic material-instancing experiment was removed: the tested Deferred bu
 
 ### Latest installed-build run
 
+The banner's main-menu loading card retains the matched 0.15.8 pair: 54.33 s without KOE and 50.08 s with KOE (-7.8%). The latest standalone run took 59.68 s; it has no new matched no-KOE control and does not establish a loading regression. Other banner cards use the latest run against the historical no-KOE reference.
+
 One complete run with frame generation off. This installed test build includes the 0.16.0 settings interface, but its binary set differs from the published 0.16.0 archive. The following are single-run observations, not a new matched comparison. Existing caches were retained and the OS cache was not cleared.
 
 | Loading stage | Seconds |
