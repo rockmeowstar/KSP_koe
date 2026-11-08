@@ -7,6 +7,10 @@
 </p>
 
 <p align="center">
+  <img src="assets/release-history-0.15.7.svg" alt="KOE release history from no KOE through 0.15.7 — median base FPS and physics with three-sample min/max ranges" width="100%">
+</p>
+
+<p align="center">
   <a href="https://github.com/rockmeowstar/ksp_koe/releases/tag/0.15.7"><img src="https://img.shields.io/badge/release-0.15.7-8b5cf6?style=flat-square" alt="Release 0.15.7"></a>
   <img src="https://img.shields.io/badge/KSP-1.12.5-64748b?style=flat-square" alt="KSP 1.12.5">
   <img src="https://img.shields.io/badge/Feature_flags-66-14b8a6?style=flat-square" alt="66 feature flags">
@@ -74,6 +78,8 @@ Three 15-real-second mid-flight samples per configuration, starting at roughly 1
 With FAR 0.16.2 and KSPCF held constant, KOE improved the recorded median by **78.4% in base FPS** and **76.0% in physics rate**. The banner's two **No FAR** cards are retained failure-case observations: FAR 0.16.2 did not load without its KSPCF dependency; they are not clean-uninstall controls. On FAR 0.16.1.2, seven FAR-specific KOE integrations are disabled by compatibility guards. Different FAR versions prevent attributing their difference to KSPCF alone.
 
 The banner's repeatability index is `100 − average relative range`, averaging the FPS and physics ranges divided by their respective means. It describes these three samples and is not statistical confidence. [Sample data and limitations](assets/benchmarks-0.15.7.json).
+
+The third chart compares 0.15.0–0.15.6 with fresh three-window samples, reusing the previous 0.15.7 and no-KOE samples. Its bands show the minimum and maximum window averages. Recurring stock UI/EVA exceptions were present during sampling, so the chart includes that overhead; it is not an error-free ordinary-flight benchmark. [Release-history data and exception counts](assets/release-history-0.15.7.json).
 
 ### Earlier full-cycle measurements (0.15.6)
 
