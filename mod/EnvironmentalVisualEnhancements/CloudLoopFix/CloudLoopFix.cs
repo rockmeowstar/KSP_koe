@@ -30,6 +30,7 @@ namespace CloudLoopFix
                 return;
             Prepare(assembly, geometry, order, material);
             var patcher = new Harmony(Id);
+            bool liveGeometryRegistered = false;
             try
             {
                 if (geometry)
@@ -41,6 +42,9 @@ namespace CloudLoopFix
                     };
                     Type hooks = typeof(IntervalHooks<, >).MakeGenericType(args);
                     patcher.Patch(intervals, new HarmonyMethod(hooks.GetMethod("Prefix")), new HarmonyMethod(hooks.GetMethod("Postfix")));
+                    MethodInfo reset = hooks.GetMethod("Reset");
+                    KerbalOverEngineering.Options.LiveOptions.Register("EVE.IntervalGeometryMemo", true, value => { reset.Invoke(null, null); return true; });
+                    liveGeometryRegistered = true;
                 }
                 if (order)
                     patcher.Patch(commands, null, null, new HarmonyMethod(typeof(Patch), "Transpile"));
@@ -55,6 +59,7 @@ namespace CloudLoopFix
             }
             catch
             {
+                if (liveGeometryRegistered) KerbalOverEngineering.Options.LiveOptions.Unregister("EVE.IntervalGeometryMemo");
                 patcher.UnpatchAll(Id);
                 throw;
             }
@@ -236,16 +241,24 @@ namespace CloudLoopFix
     public static class IntervalHooks<TBound, TInterval>
     {
         static readonly Func<TBound, BoundKey> Key = Patch.MakeBoundReader<TBound>();
-        static readonly ConditionalWeakTable<object, ListMemo<TBound, BoundKey, List<TInterval>>> Entries = new ConditionalWeakTable<object, ListMemo<TBound, BoundKey, List<TInterval>>>();
+        static ConditionalWeakTable<object, ListMemo<TBound, BoundKey, List<TInterval>>> Entries = new ConditionalWeakTable<object, ListMemo<TBound, BoundKey, List<TInterval>>>();
         static readonly ConditionalWeakTable<object, ListMemo<TBound, BoundKey, List<TInterval>>>.CreateValueCallback Create = delegate
         {
             return new ListMemo<TBound, BoundKey, List<TInterval>>();
         };
         public static bool Prefix(object __instance, List<TBound> __0, ref List<TInterval> __result, out bool __state)
         {
+            bool enabled;
+            if (KerbalOverEngineering.Options.LiveOptions.TryGet("EVE.IntervalGeometryMemo", out enabled) && !enabled)
+            {
+                __state = true;
+                return true;
+            }
             __state = Entries.GetValue(__instance, Create).TryGet(__0, Key, out __result);
             return !__state;
         }
+
+        public static void Reset() { Entries = new ConditionalWeakTable<object, ListMemo<TBound, BoundKey, List<TInterval>>>(); }
 
         public static void Postfix(object __instance, List<TBound> __0, List<TInterval> __result, bool __state)
         {

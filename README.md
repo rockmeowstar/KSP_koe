@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/rockmeowstar/ksp_koe/releases/tag/0.15.8"><img src="https://img.shields.io/badge/release-0.15.8-8b5cf6?style=flat-square" alt="Release 0.15.8"></a>
+  <a href="https://github.com/rockmeowstar/ksp_koe/releases/tag/0.16.0"><img src="https://img.shields.io/badge/release-0.16.0-8b5cf6?style=flat-square" alt="Release 0.16.0"></a>
   <img src="https://img.shields.io/badge/KSP-1.12.5-64748b?style=flat-square" alt="KSP 1.12.5">
   <img src="https://img.shields.io/badge/Feature_flags-73-14b8a6?style=flat-square" alt="73 feature flags">
   <img src="https://img.shields.io/badge/Local_checks-verified_2026--11--08-22c55e?style=flat-square" alt="Local validation snapshot: November 8, 2026">
@@ -20,13 +20,15 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/rockmeowstar/ksp_koe/releases/tag/0.15.8">Download 0.15.8</a> ·
+  <a href="https://github.com/rockmeowstar/ksp_koe/releases/tag/0.16.0">Download 0.16.0</a> ·
   <a href="https://spacedock.info/mod/4787/KerbalOverengineering%20(KOE)">SpaceDock / CKAN</a> ·
   <a href="https://forum.kerbalspaceprogram.com/topic/232077-1125-kerbaloverengineering-koe-performance-optimization-for-ksp-and-its-mods/">Forum</a> ·
   <a href="https://github.com/rockmeowstar/ksp_koe/issues">Report an issue</a>
 </p>
 
 KOE optimizes loading, resource handling, scene updates and rendering in KSP and supported mods. It combines **73 individually configurable options across 38 modules**. Frame generation is optional; most features do not require an NVIDIA GPU.
+
+**0.16.0** adds a KOE toolbar button for editing settings in-game. Most changes require restarting KSP; the window indicates which options can apply immediately. The performance figures below are historical 0.15.8 measurements.
 
 **0.15.8** brings together the accepted rendering and loading fixes:
 
@@ -41,7 +43,7 @@ Accepted features default on when their dependencies are supported. Existing set
 
 1. Install [ModuleManager](https://ksp.sarbian.com/jenkins/job/ModuleManager/) and [HarmonyKSP](https://github.com/KSPModdingLibs/HarmonyKSP).
 2. Extract the release's `GameData` folder into your KSP directory. No installer executable is needed.
-3. Launch once. KOE creates `GameData/KerbalOverEngineering/Options.cfg` using the dependencies it detects. Edit individual `true` / `false` flags and restart to change them.
+3. Launch once. KOE creates `GameData/KerbalOverEngineering/Options.cfg` using the dependencies it detects. Use the KOE toolbar button in the space center, editor or flight to change options, or edit the file directly. Most changes require a restart.
 
 Existing configs are preserved. To detect all options again after an upgrade, back up and remove `Options.cfg`; the next launch recreates it. Missing keys in an existing config remain disabled. Version and patch-ownership guards can also disable unsupported or overlapping integrations.
 

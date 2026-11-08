@@ -31,10 +31,12 @@ namespace KoeCollisionStateFix
                 if (Harmony.GetPatchInfo(method) != null)
                     throw new NotSupportedException("Collision optimizer already patched");
                 harmony.Patch(method, null, null, new HarmonyMethod(typeof(Bootstrap), "Transpile"));
+                KerbalOverEngineering.Options.LiveOptions.Register("KSPCommunityFixes.CollisionStateDedup", true, value => true);
                 Debug.Log("[KOE CollisionState] Applied; actual pair state read on every refresh; no persistent collision-state cache");
             }
             catch (Exception ex)
             {
+                KerbalOverEngineering.Options.LiveOptions.Unregister("KSPCommunityFixes.CollisionStateDedup");
                 harmony.UnpatchAll(Id);
                 Debug.LogError("[KOE CollisionState] Disabled: " + ex.Message);
             }
@@ -67,6 +69,12 @@ namespace KoeCollisionStateFix
 
         public static void EnsureState(Collider a, Collider b, bool ignored)
         {
+            bool enabled;
+            if (KerbalOverEngineering.Options.LiveOptions.TryGet("KSPCommunityFixes.CollisionStateDedup", out enabled) && !enabled)
+            {
+                Physics.IgnoreCollision(a, b, ignored);
+                return;
+            }
             // AI-generated comment: Query native state, rather than trusting a stale pair cache. Changes
             // made by other mods and newly created colliders remain observable.
             if (Physics.GetIgnoreCollision(a, b) != ignored)

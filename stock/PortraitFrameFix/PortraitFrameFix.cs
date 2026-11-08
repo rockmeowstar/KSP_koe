@@ -49,10 +49,13 @@ namespace KerbalOverEngineering.Portraits
                         AccessTools.Method(typeof(KerbalPortrait), "RectContainment_OnContainmentChanged"),
                         postfix: new HarmonyMethod(typeof(PortraitFrameFix), "PartialVisible")
                     );
+                KerbalOverEngineering.Options.LiveOptions.Register("Stock.PortraitFullRate",
+                    KerbalOverEngineering.Options.Settings.Enabled("Stock.PortraitFullRate"), value => true);
                 Debug.Log("[PortraitFrameFix] enabled: visible portraits every frame, hidden portraits no render; original cameras retained");
             }
             catch (Exception error)
             {
+                KerbalOverEngineering.Options.LiveOptions.Unregister("Stock.PortraitFullRate");
                 new Harmony(Id).UnpatchAll(Id);
                 Debug.LogError("[PortraitFrameFix] disabled: " + error);
             }
@@ -73,11 +76,17 @@ namespace KerbalOverEngineering.Portraits
             var owner = (UnityEngine.Object)__instance;
             FieldInfo field = __instance is Kerbal ? CabinPortrait : EvaPortrait;
             var visibility = new Visibility(__instance, field);
-            bool cull = KerbalOverEngineering.Options.Settings.Enabled("Stock.PortraitHiddenCull");
-            bool fullRate = KerbalOverEngineering.Options.Settings.Enabled("Stock.PortraitFullRate");
-            __result = FrameCycle.Run(__result, () => owner != null, () => !cull
-                || visibility.Visible(), wait => fullRate
+            bool cullAtStart = KerbalOverEngineering.Options.Settings.Enabled("Stock.PortraitHiddenCull");
+            bool fullRateAtStart = KerbalOverEngineering.Options.Settings.Enabled("Stock.PortraitFullRate");
+            __result = FrameCycle.Run(__result, () => owner != null, () => !cullAtStart
+                || visibility.Visible(), wait => LiveValue("Stock.PortraitFullRate", fullRateAtStart)
                 && wait is WaitForSeconds);
+        }
+
+        static bool LiveValue(string key, bool fallback)
+        {
+            bool current;
+            return KerbalOverEngineering.Options.LiveOptions.TryGet(key, out current) ? current : fallback;
         }
 
         sealed class Visibility

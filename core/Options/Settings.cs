@@ -51,7 +51,8 @@ namespace KerbalOverEngineering.Options
                     }
                 }
 
-                if (!store.Enabled(key))
+                bool live;
+                if (!(LiveOptions.TryGet(key, out live) ? live : store.Enabled(key)))
                     return false;
                 string reason;
                 try
