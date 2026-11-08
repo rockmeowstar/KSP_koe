@@ -2,6 +2,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include "InstancedLightBatch.h"
 #include "BufferValidity.h"
+#include "BlendFactorUsage.h"
 #include <windows.h>
 #include <d3d11_3.h>
 #include <bcrypt.h>
@@ -33,6 +34,8 @@ struct Guard
 };
 static std::atomic<int> mode{0};
 static std::atomic<bool> initialized{false}, sceneAllowed{false};
+static std::atomic<bool> normalizeBlendFactor{false};
+static std::atomic<uint64_t> normalizationChecks{}, normalizedFactors{};
 static std::atomic<long long> draws{}, queued{}, batches{}, sources{}, fallbacks{}, mirrored{}, errors{}, samples{},
     different{}, changed{}, maxBatch{}, emptySamples{}, barriers{}, missingConstants{};
 static BCRYPT_ALG_HANDLE algorithm{};
@@ -289,6 +292,15 @@ static void STDMETHODCALLTYPE Hook_UpdateSubresource1(Context *, ID3D11Resource 
                                                       const void *, UINT, UINT, UINT);
 static void STDMETHODCALLTYPE Hook_VSSetShader(Context *, ID3D11VertexShader *, ID3D11ClassInstance *const *, UINT);
 static void STDMETHODCALLTYPE Hook_PSSetShader(Context *, ID3D11PixelShader *, ID3D11ClassInstance *const *, UINT);
+static bool BlendFactorUsed(ID3D11BlendState* state)
+{
+    if(!normalizeBlendFactor.load(std::memory_order_relaxed))return true;
+    static thread_local BlendFactorUsage usage;
+    normalizationChecks.fetch_add(1,std::memory_order_relaxed);
+    bool used=usage.Used(state);
+    if(!used)normalizedFactors.fetch_add(1,std::memory_order_relaxed);
+    return used;
+}
 #include "LightContextHooks.generated.h"
 using CreateVS = HRESULT(STDMETHODCALLTYPE *)(ID3D11Device *, const void *, SIZE_T, ID3D11ClassLinkage *,
                                               ID3D11VertexShader **);
@@ -1094,6 +1106,18 @@ extern "C" __declspec(dllexport) void SetInstancedLightsScene(int value)
 {
     sceneAllowed = value != 0;
 }
+extern "C" __declspec(dllexport) int ConfigureBlendFactorNormalization(int value)
+{
+    if(initialized.load(std::memory_order_acquire))return -1;
+    normalizeBlendFactor.store(value!=0,std::memory_order_relaxed);return 0;
+}
+extern "C" __declspec(dllexport) int ReadBlendFactorNormalization(uint64_t* values,unsigned count)
+{
+    if(!values||count<3)return -1;
+    values[0]=normalizeBlendFactor.load(std::memory_order_relaxed)?1:0;
+    values[1]=normalizationChecks.load(std::memory_order_relaxed);
+    values[2]=normalizedFactors.load(std::memory_order_relaxed);return 0;
+}
 extern "C" __declspec(dllexport) void SetInstancedLightsMode(int value)
 {
     if (value < 0 || value > 1 || (value > 0 && errors.load() != 0))
@@ -1130,9 +1154,9 @@ extern "C" __declspec(dllexport) int ReadCaptureLookupCounters(uint64_t *output,
     return UseCaptureLookup() ? 1 : 0;
 }
 #endif
-#if defined(KOE_MAP_CAPTURE_AUDIT) || defined(KOE_CAPTURE_LOOKUP_AUDIT)
 extern "C" __declspec(dllexport) int MarkCaptureBufferWanted(ID3D11Resource *resource)
 {
+    if (!resource) return -1;
     std::lock_guard<std::mutex> lock(bufferMutex);
     auto *shadow = Shadow(resource);
     if (!shadow) return -1;
@@ -1140,6 +1164,7 @@ extern "C" __declspec(dllexport) int MarkCaptureBufferWanted(ID3D11Resource *res
     captureEnabled.store(true, std::memory_order_release);
     return 0;
 }
+#if defined(KOE_MAP_CAPTURE_AUDIT) || defined(KOE_CAPTURE_LOOKUP_AUDIT)
 extern "C" __declspec(dllexport) size_t CapturedShadowCount()
 {
     std::lock_guard<std::mutex> lock(bufferMutex);
@@ -1156,7 +1181,6 @@ extern "C" __declspec(dllexport) int ReadLightSnapshot(ID3D11DeviceContext *cont
     return 0;
 }
 #endif
-#if defined(KOE_MAP_CAPTURE_AUDIT) || defined(KOE_CAPTURE_LOOKUP_AUDIT)
 extern "C" __declspec(dllexport) int ReadCapturedBuffer(ID3D11Resource *resource, void *output, size_t size)
 {
     std::lock_guard<std::mutex> lock(bufferMutex);
@@ -1166,7 +1190,6 @@ extern "C" __declspec(dllexport) int ReadCapturedBuffer(ID3D11Resource *resource
     std::memcpy(output, it->second.bytes.data(), size);
     return 0;
 }
-#endif
 extern "C" __declspec(dllexport) int SetBufferValidityMode(int value)
 {
     if (value < 0 || value > 1) return -1;

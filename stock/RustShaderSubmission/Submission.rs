@@ -6,6 +6,8 @@ mod parallel;
 mod property_index;
 #[path = "ValueApply.rs"]
 mod value_apply;
+#[path = "ValuePlan.rs"]
+mod value_plan;
 
 use abi::*;
 use std::arch::x86_64::*;
@@ -113,6 +115,7 @@ struct Scratch {
     lookup: Lookup,
     constants: Vec<BufferBinding>,
     copies: Vec<parallel::CopyRange>,
+    plans: value_plan::Cache,
 }
 impl Scratch {
     const fn new() -> Self {
@@ -120,6 +123,7 @@ impl Scratch {
             lookup: Lookup::new(),
             constants: Vec::new(),
             copies: Vec::new(),
+            plans: value_plan::Cache::new(),
         }
     }
 }
@@ -166,12 +170,18 @@ unsafe fn prepare_values(
     writer: &mut Writer,
     copies: &mut Vec<parallel::CopyRange>,
     defer: bool,
+    plans: &mut value_plan::Cache,
 ) -> Option<()> {
     let count = counts
         .iter()
         .try_fold(0usize, |sum, &value| sum.checked_add(value as usize))?;
     if !parameters.valid() || count > parameters.len || count >= 0xffff {
         return None;
+    }
+    if lookup.indexed && !defer && count >= 16 {
+        if let Some(written) = plans.write(parameters, counts, properties, lookup, writer) {
+            return written.then_some(());
+        }
     }
     let mut parameter_index = 0;
     for (kind, &amount) in counts.iter().enumerate() {
@@ -257,6 +267,7 @@ unsafe fn prepare_program(
         writer,
         &mut scratch.copies,
         defer,
+        &mut scratch.plans,
     )?;
     for index in 0..program.constants.len {
         let parameter = &*program.constants.data.add(index);
@@ -285,6 +296,7 @@ unsafe fn prepare_program(
                 writer,
                 &mut scratch.copies,
                 defer,
+                &mut scratch.plans,
             )?;
         }
     }

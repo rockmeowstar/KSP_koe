@@ -1,0 +1,86 @@
+{
+  "version": "0.15.8",
+  "comparison": "Historical no-KOE reference (2026-11-05) versus retained accepted full cycle (2026-11-08)",
+  "matched_pair": false,
+  "frame_generation": false,
+  "baseline_source": "Published 0.15.3 comparison; KSPCommunityFixes enabled, all KOE performance modules absent",
+  "precision": "Reference values are published rounded values; current values retain telemetry precision; percentages are approximate",
+  "hardware": "Intel Core i5-14600K, 64 GiB RAM, RTX 4060 8 GiB, 2560x1440, D3D11, NVIDIA 621.01",
+  "craft": "01KOE, 353 craft-file parts / 345 flight parts",
+  "loading_seconds": {
+    "main_menu": [
+      55.12,
+      49.892366
+    ],
+    "save": [
+      3.24,
+      3.104765
+    ],
+    "vab": [
+      3.06,
+      3.016442
+    ],
+    "flight": [
+      13.07,
+      11.368598
+    ],
+    "total": [
+      74.49,
+      67.38217
+    ]
+  },
+  "base_fps": {
+    "ksc": [
+      28.55,
+      44.29138222576033
+    ],
+    "launchpad_idle": [
+      20.86,
+      35.494943344843136
+    ],
+    "powered_flight": [
+      12.38,
+      21.69507026669856
+    ],
+    "after_fuel": [
+      18.4,
+      24.974312421216034
+    ]
+  },
+  "physics_updates_per_second": {
+    "ksc": [
+      48.74,
+      49.99027339250602
+    ],
+    "launchpad_idle": [
+      41.17,
+      49.91212935901933
+    ],
+    "powered_flight": [
+      24.77,
+      41.88785133504547
+    ],
+    "after_fuel": [
+      36.4,
+      48.05057709841965
+    ]
+  },
+  "portrait_fps": {
+    "powered_flight": [
+      3.09,
+      21.69507026669856
+    ]
+  },
+  "current_portrait_basis": "Visible portraits follow base rendered FPS; current value derived from the powered-flight renderer rate, not a separate portrait counter",
+  "space_fps_basis": "Uses the existing after-fuel mixed-altitude window as a proxy; no isolated space-only FPS was recorded",
+  "limits": [
+    "Different capture dates, cache states and observation windows; not a matched A/B",
+    "The historical reference rebuilt the part cache; the current run did not clear part, application or OS caches",
+    "Loading excludes scripted observation holds and actual flight; totals use unrounded measurements",
+    "Powered flight includes ignition stalls; launchpad idle ends before ignition",
+    "The latest full run did not separately remeasure portrait FPS",
+    "Largest ignition frame has no matched no-KOE reference; not the ActivateNextStage call duration",
+    "This full cycle predates packaging; source state and enabled features are tracked separately from release artifacts"
+  ],
+  "launch_max_frame_ms": 293.9738
+}

@@ -5,6 +5,7 @@
 #include <thread>
 #include <tuple>
 #include <d3d11_1.h>
+#include "CloudHookChain.h"
 
 extern "C" void *koe_compile_cloud_maps(const unsigned char *, size_t, const unsigned char **, size_t *);
 extern "C" int koe_pair_bc4(const unsigned char *, const unsigned char *, size_t, unsigned char *, size_t);
@@ -55,6 +56,7 @@ static std::thread worker;
 static bool stopping{};
 static const GUID textureIdentity = {0x2e5c26ac, 0x4b74, 0x4e39, {0xaa, 0x7c, 0xa4, 0x45, 0xc7, 0xcb, 0xe8, 0x35}};
 static const GUID shaderIdentity = {0x44dc718c, 0x3a65, 0x4fb8, {0xb1, 0x9b, 0x1f, 0xd2, 0x22, 0x63, 0x69, 0x01}};
+static const GUID viewIdentity = {0x124c60c7, 0x9e60, 0x4f16, {0x92, 0x67, 0xe3, 0xc6, 0x3a, 0x97, 0x85, 0x40}};
 
 static bool Reserve(std::atomic<size_t> &used, size_t limit, size_t bytes)
 {
@@ -349,16 +351,15 @@ static void Work()
         {
             jobFailures++;
         }
+        std::shared_ptr<Payload> retiredRed, retiredGreen;
+        ID3D11Device *retiredDevice{};
         {
             std::lock_guard<std::mutex> lock(cacheMutex);
-            job->red.reset();
-            job->green.reset();
+            retiredRed = std::move(job->red);
+            retiredGreen = std::move(job->green);
             job->complete = true;
-            if (job->device)
-            {
-                job->device->Release();
-                job->device = nullptr;
-            }
+            retiredDevice = job->device;
+            job->device = nullptr;
             if (!job->view)
                 jobFailures++;
             if (!job->view && job->reserved)
@@ -367,6 +368,9 @@ static void Work()
                 job->reserved = 0;
             }
         }
+        // AI-generated comment: Release completed-job resources after unlocking the render cache.
+        if (retiredDevice)
+            retiredDevice->Release();
     }
 }
 static std::shared_ptr<Texture> TextureFor(ID3D11Resource *resource)
@@ -488,7 +492,7 @@ static HRESULT STDMETHODCALLTYPE CreateTextureHook(ID3D11Device *device, const D
     }
     return hr;
 }
-static void STDMETHODCALLTYPE UpdateHook(Context *context, ID3D11Resource *resource, UINT subresource,
+static void STDMETHODCALLTYPE UpdateBody(Context *context, ID3D11Resource *resource, UINT subresource,
                                          const D3D11_BOX *box, const void *data, UINT row, UINT depth)
 {
     if (!active.load() || !TextureFor(resource))
@@ -525,7 +529,7 @@ static void CopyPayload(Context *context, ID3D11Resource *destination, ID3D11Res
     if (!b->dynamic)
         b->payload = a->payload;
 }
-static void STDMETHODCALLTYPE CopyHook(Context *context, ID3D11Resource *destination, ID3D11Resource *source)
+static void STDMETHODCALLTYPE CopyBody(Context *context, ID3D11Resource *destination, ID3D11Resource *source)
 {
     if (SameCopy(context, destination, source, 0, 0, 0, 0, 0, nullptr))
     {
@@ -536,7 +540,7 @@ static void STDMETHODCALLTYPE CopyHook(Context *context, ID3D11Resource *destina
     originalCopy(context, destination, source);
     CopyPayload(context, destination, source, 0, 0, 0, 0, 0, nullptr);
 }
-static void STDMETHODCALLTYPE RegionHook(Context *context, ID3D11Resource *destination, UINT subresource, UINT x,
+static void STDMETHODCALLTYPE RegionBody(Context *context, ID3D11Resource *destination, UINT subresource, UINT x,
                                          UINT y, UINT z, ID3D11Resource *source, UINT sourceSubresource,
                                          const D3D11_BOX *box)
 {
@@ -549,7 +553,7 @@ static void STDMETHODCALLTYPE RegionHook(Context *context, ID3D11Resource *desti
     originalRegion(context, destination, subresource, x, y, z, source, sourceSubresource, box);
     CopyPayload(context, destination, source, subresource, x, y, z, sourceSubresource, box);
 }
-static HRESULT STDMETHODCALLTYPE MapHook(Context *context, ID3D11Resource *resource, UINT subresource, D3D11_MAP type,
+static HRESULT STDMETHODCALLTYPE MapBody(Context *context, ID3D11Resource *resource, UINT subresource, D3D11_MAP type,
                                          UINT flags, D3D11_MAPPED_SUBRESOURCE *out)
 {
     if (!active.load() || !TextureFor(resource))
@@ -577,7 +581,7 @@ static HRESULT STDMETHODCALLTYPE MapHook(Context *context, ID3D11Resource *resou
     }
     return hr;
 }
-static void STDMETHODCALLTYPE UnmapHook(Context *context, ID3D11Resource *resource, UINT subresource)
+static void STDMETHODCALLTYPE UnmapBody(Context *context, ID3D11Resource *resource, UINT subresource)
 {
     if (!active.load() || !TextureFor(resource))
     {
@@ -617,7 +621,7 @@ static void STDMETHODCALLTYPE UnmapHook(Context *context, ID3D11Resource *resour
         texture->payload = std::move(payload);
     }
 }
-static void STDMETHODCALLTYPE UpdateHook1(ID3D11DeviceContext1 *context, ID3D11Resource *resource, UINT subresource,
+static void STDMETHODCALLTYPE UpdateBody1(ID3D11DeviceContext1 *context, ID3D11Resource *resource, UINT subresource,
                                           const D3D11_BOX *box, const void *data, UINT row, UINT depth, UINT flags)
 {
     if (!active.load() || !TextureFor(resource))
@@ -641,7 +645,7 @@ static void STDMETHODCALLTYPE UpdateHook1(ID3D11DeviceContext1 *context, ID3D11R
         jobFailures++;
     }
 }
-static void STDMETHODCALLTYPE RegionHook1(ID3D11DeviceContext1 *context, ID3D11Resource *destination, UINT subresource,
+static void STDMETHODCALLTYPE RegionBody1(ID3D11DeviceContext1 *context, ID3D11Resource *destination, UINT subresource,
                                           UINT x, UINT y, UINT z, ID3D11Resource *source, UINT sourceSubresource,
                                           const D3D11_BOX *box, UINT flags)
 {
@@ -654,7 +658,7 @@ static void STDMETHODCALLTYPE RegionHook1(ID3D11DeviceContext1 *context, ID3D11R
     originalRegion1(context, destination, subresource, x, y, z, source, sourceSubresource, box, flags);
     CopyPayload(context, destination, source, subresource, x, y, z, sourceSubresource, box);
 }
-static void STDMETHODCALLTYPE DiscardHook(ID3D11DeviceContext1 *context, ID3D11Resource *resource)
+static void STDMETHODCALLTYPE DiscardBody(ID3D11DeviceContext1 *context, ID3D11Resource *resource)
 {
     Invalidate(resource);
     originalDiscard(context, resource);
@@ -668,12 +672,12 @@ static void InvalidateView(ID3D11View *view)
     Invalidate(resource);
     resource->Release();
 }
-static void STDMETHODCALLTYPE DiscardViewHook(ID3D11DeviceContext1 *context, ID3D11View *view)
+static void STDMETHODCALLTYPE DiscardViewBody(ID3D11DeviceContext1 *context, ID3D11View *view)
 {
     InvalidateView(view);
     originalDiscardView(context, view);
 }
-static void STDMETHODCALLTYPE DiscardViewHook1(ID3D11DeviceContext1 *context, ID3D11View *view,
+static void STDMETHODCALLTYPE DiscardViewBody1(ID3D11DeviceContext1 *context, ID3D11View *view,
                                                const D3D11_RECT *rectangles, UINT count)
 {
     InvalidateView(view);
@@ -684,6 +688,8 @@ static std::shared_ptr<Texture> ViewTexture(ID3D11ShaderResourceView *view)
 {
     if (!view)
         return {};
+    if (auto texture = State<Texture>(view, viewIdentity))
+        return texture;
     D3D11_SHADER_RESOURCE_VIEW_DESC desc{};
     view->GetDesc(&desc);
     if (desc.Format != DXGI_FORMAT_BC4_UNORM || desc.ViewDimension != D3D11_SRV_DIMENSION_TEXTURE2D ||
@@ -693,6 +699,9 @@ static std::shared_ptr<Texture> ViewTexture(ID3D11ShaderResourceView *view)
     view->GetResource(&resource);
     auto texture = TextureFor(resource);
     resource->Release();
+    // AI-generated comment: The view retains its resource; updates mutate this same Texture state.
+    if (texture)
+        Attach(view, viewIdentity, texture);
     return texture;
 }
 static std::shared_ptr<Pair> PairFor(Context *context, ID3D11ShaderResourceView *a, ID3D11ShaderResourceView *b)
@@ -765,7 +774,7 @@ static void Remember(Context *context, ID3D11PixelShader *shader, UINT instances
     }
     binding = {context, shader, entry.program, epoch.load()};
 }
-static void STDMETHODCALLTYPE DrawHook(Context *context, UINT count, UINT start, INT base)
+static void STDMETHODCALLTYPE DrawBody(Context *context, UINT count, UINT start, INT base)
 {
     if (!active.load() || !drawEnabled.load() || binding.context != context || binding.epoch != epoch.load())
     {
@@ -895,14 +904,51 @@ static void Clear(bool releaseSources)
     TrimLocked(gpuLimit.load());
     wake.notify_one();
 }
+static CloudHookChain::Endpoint updateChain, copyChain, regionChain, mapChain, unmapChain, drawChain,
+    regionChain1, updateChain1, discardChain, discardViewChain, discardViewChain1;
+static void STDMETHODCALLTYPE UpdateHook(Context *c, ID3D11Resource *r, UINT s, const D3D11_BOX *b, const void *d, UINT row, UINT depth)
+{ CloudHookChain::Invoke(updateChain, UpdateBody, c, r, s, b, d, row, depth); }
+static void STDMETHODCALLTYPE CopyHook(Context *c, ID3D11Resource *d, ID3D11Resource *s)
+{ CloudHookChain::Invoke(copyChain, CopyBody, c, d, s); }
+static void STDMETHODCALLTYPE RegionHook(Context *c, ID3D11Resource *d, UINT sub, UINT x, UINT y, UINT z, ID3D11Resource *s, UINT ss, const D3D11_BOX *b)
+{ CloudHookChain::Invoke(regionChain, RegionBody, c, d, sub, x, y, z, s, ss, b); }
+static HRESULT STDMETHODCALLTYPE MapHook(Context *c, ID3D11Resource *r, UINT sub, D3D11_MAP type, UINT flags, D3D11_MAPPED_SUBRESOURCE *out)
+{ return CloudHookChain::Invoke(mapChain, MapBody, c, r, sub, type, flags, out); }
+static void STDMETHODCALLTYPE UnmapHook(Context *c, ID3D11Resource *r, UINT sub)
+{ CloudHookChain::Invoke(unmapChain, UnmapBody, c, r, sub); }
+static void STDMETHODCALLTYPE DrawHook(Context *c, UINT count, UINT start, INT base)
+{ CloudHookChain::Invoke(drawChain, DrawBody, c, count, start, base); }
+static void STDMETHODCALLTYPE UpdateHook1(ID3D11DeviceContext1 *c, ID3D11Resource *r, UINT sub, const D3D11_BOX *b, const void *d, UINT row, UINT depth, UINT flags)
+{ CloudHookChain::Invoke(updateChain1, UpdateBody1, c, r, sub, b, d, row, depth, flags); }
+static void STDMETHODCALLTYPE RegionHook1(ID3D11DeviceContext1 *c, ID3D11Resource *d, UINT sub, UINT x, UINT y, UINT z, ID3D11Resource *s, UINT ss, const D3D11_BOX *b, UINT flags)
+{ CloudHookChain::Invoke(regionChain1, RegionBody1, c, d, sub, x, y, z, s, ss, b, flags); }
+static void STDMETHODCALLTYPE DiscardHook(ID3D11DeviceContext1 *c, ID3D11Resource *r)
+{ CloudHookChain::Invoke(discardChain, DiscardBody, c, r); }
+static void STDMETHODCALLTYPE DiscardViewHook(ID3D11DeviceContext1 *c, ID3D11View *v)
+{ CloudHookChain::Invoke(discardViewChain, DiscardViewBody, c, v); }
+static void STDMETHODCALLTYPE DiscardViewHook1(ID3D11DeviceContext1 *c, ID3D11View *v, const D3D11_RECT *r, UINT n)
+{ CloudHookChain::Invoke(discardViewChain1, DiscardViewBody1, c, v, r, n); }
+
 static std::vector<void *> hookTargets;
-static bool Hook(void *target, void *replacement, void **original)
+static bool Hook(void *target, void *replacement, void **original,
+                 CloudHookChain::Endpoint *endpoint = nullptr, void *body = nullptr)
 {
     if (std::find(hookTargets.begin(), hookTargets.end(), target) != hookTargets.end())
         return false;
     if (MH_CreateHook(target, replacement, original) != MH_OK)
         return false;
-    hookTargets.push_back(target);
+    if (endpoint && !CloudHookChain::registry.Add(*endpoint, target, body))
+    {
+        MH_RemoveHook(target);
+        return false;
+    }
+    try { hookTargets.push_back(target); }
+    catch (...)
+    {
+        if (endpoint) CloudHookChain::registry.Remove(target);
+        MH_RemoveHook(target);
+        return false;
+    }
     return true;
 }
 static bool Initialize(ID3D11Device *device, Context *context)
@@ -913,21 +959,21 @@ static bool Initialize(ID3D11Device *device, Context *context)
     gpuLimit.store(VideoBudget(device));
     auto dv = *reinterpret_cast<void ***>(device), cv = *reinterpret_cast<void ***>(context);
     bool ok = Hook(dv[5], reinterpret_cast<void *>(CreateTextureHook), reinterpret_cast<void **>(&originalTexture)) &&
-              Hook(cv[48], reinterpret_cast<void *>(UpdateHook), reinterpret_cast<void **>(&originalUpdate)) &&
-              Hook(cv[47], reinterpret_cast<void *>(CopyHook), reinterpret_cast<void **>(&originalCopy)) &&
-              Hook(cv[46], reinterpret_cast<void *>(RegionHook), reinterpret_cast<void **>(&originalRegion)) &&
-              Hook(cv[14], reinterpret_cast<void *>(MapHook), reinterpret_cast<void **>(&originalMap)) &&
-              Hook(cv[15], reinterpret_cast<void *>(UnmapHook), reinterpret_cast<void **>(&originalUnmap)) &&
-              Hook(cv[12], reinterpret_cast<void *>(DrawHook), reinterpret_cast<void **>(&originalDraw));
+              Hook(cv[48], reinterpret_cast<void *>(UpdateHook), reinterpret_cast<void **>(&originalUpdate), &updateChain, reinterpret_cast<void *>(UpdateBody)) &&
+              Hook(cv[47], reinterpret_cast<void *>(CopyHook), reinterpret_cast<void **>(&originalCopy), &copyChain, reinterpret_cast<void *>(CopyBody)) &&
+              Hook(cv[46], reinterpret_cast<void *>(RegionHook), reinterpret_cast<void **>(&originalRegion), &regionChain, reinterpret_cast<void *>(RegionBody)) &&
+              Hook(cv[14], reinterpret_cast<void *>(MapHook), reinterpret_cast<void **>(&originalMap), &mapChain, reinterpret_cast<void *>(MapBody)) &&
+              Hook(cv[15], reinterpret_cast<void *>(UnmapHook), reinterpret_cast<void **>(&originalUnmap), &unmapChain, reinterpret_cast<void *>(UnmapBody)) &&
+              Hook(cv[12], reinterpret_cast<void *>(DrawHook), reinterpret_cast<void **>(&originalDraw), &drawChain, reinterpret_cast<void *>(DrawBody));
     ID3D11DeviceContext1 *modern{};
     if (ok && SUCCEEDED(context->QueryInterface(__uuidof(ID3D11DeviceContext1), reinterpret_cast<void **>(&modern))))
     {
         auto v = *reinterpret_cast<void ***>(modern);
-        ok = Hook(v[115], reinterpret_cast<void *>(RegionHook1), reinterpret_cast<void **>(&originalRegion1)) &&
-             Hook(v[116], reinterpret_cast<void *>(UpdateHook1), reinterpret_cast<void **>(&originalUpdate1)) &&
-             Hook(v[117], reinterpret_cast<void *>(DiscardHook), reinterpret_cast<void **>(&originalDiscard)) &&
-             Hook(v[118], reinterpret_cast<void *>(DiscardViewHook), reinterpret_cast<void **>(&originalDiscardView)) &&
-             Hook(v[133], reinterpret_cast<void *>(DiscardViewHook1), reinterpret_cast<void **>(&originalDiscardView1));
+        ok = Hook(v[115], reinterpret_cast<void *>(RegionHook1), reinterpret_cast<void **>(&originalRegion1), &regionChain1, reinterpret_cast<void *>(RegionBody1)) &&
+             Hook(v[116], reinterpret_cast<void *>(UpdateHook1), reinterpret_cast<void **>(&originalUpdate1), &updateChain1, reinterpret_cast<void *>(UpdateBody1)) &&
+             Hook(v[117], reinterpret_cast<void *>(DiscardHook), reinterpret_cast<void **>(&originalDiscard), &discardChain, reinterpret_cast<void *>(DiscardBody)) &&
+             Hook(v[118], reinterpret_cast<void *>(DiscardViewHook), reinterpret_cast<void **>(&originalDiscardView), &discardViewChain, reinterpret_cast<void *>(DiscardViewBody)) &&
+             Hook(v[133], reinterpret_cast<void *>(DiscardViewHook1), reinterpret_cast<void **>(&originalDiscardView1), &discardViewChain1, reinterpret_cast<void *>(DiscardViewBody1));
         modern->Release();
     }
     if (ok)
@@ -946,6 +992,7 @@ static bool Initialize(ID3D11Device *device, Context *context)
         {
             MH_DisableHook(target);
             MH_RemoveHook(target);
+            CloudHookChain::registry.Remove(target);
         }
         hookTargets.clear();
         return false;

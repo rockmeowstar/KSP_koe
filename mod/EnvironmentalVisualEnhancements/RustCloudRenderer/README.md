@@ -16,7 +16,7 @@ The final same-process comparison used five samples per variant in frozen middle
 
 ## Paired cloud maps
 
-`EVE.CloudMapPacking` independently controls the Rust BC4-to-BC5 path. Compatible fresh configurations enable it; existing configs keep missing keys disabled. It preserves the half converter and correction guards. The transformer proves that two explicit-LOD samples use unchanged coordinates and LOD in the same loop iteration, then reconstructs their original single-channel return values from one two-channel fetch. Unsupported programs retain their previous shader.
+`EVE.CloudMapPacking` independently controls the Rust BC4-to-BC5 path and currently defaults to disabled after performance retesting. It preserves the half converter and correction guards. It can now coexist with CloudPassFusion through shared native callbacks instead of duplicate physical D3D hooks. The transformer proves that two explicit-LOD samples use unchanged coordinates and LOD in the same loop iteration, then reconstructs their original single-channel return values from one two-channel fetch. Unsupported programs retain their previous shader.
 
 The native adapter captures compressed bytes during texture creation, full uploads, or staging copies. It never reads a GPU texture back during rendering. A background worker interleaves existing blocks without recompression and creates an immutable paired texture on a multithread-capable D3D11 device. Rendering uses the previous path until that texture is ready. The draw path does not compile shaders, pack blocks, upload textures, or wait for the worker.
 

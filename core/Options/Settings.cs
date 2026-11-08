@@ -139,6 +139,8 @@ namespace KerbalOverEngineering.Options
                 {
                     case "Deferred":
                         return AssemblyProblem("Deferred");
+                    case "Scatterer":
+                        return AssemblyProblem("scatterer");
                     case "CameraTools":
                         return AssemblyProblem("CameraTools");
                     case "FAR":

@@ -1,4 +1,6 @@
 #![allow(dead_code)]
+#[path = "FusePasses.rs"]
+mod pass_fusion;
 #[path = "HalfAnalysis.rs"]
 mod analysis;
 #[path = "BlockPacking.rs"]

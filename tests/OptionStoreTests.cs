@@ -19,20 +19,27 @@ static class OptionStoreTests
         try
         {
             Check(
-                Catalog.Features.Length == 66
-                && Catalog.Features.Select(f => f.Key).Distinct().Count() == 66,
-                "The option catalog must contain 66 distinct feature keys."
+                Catalog.Features.Length == 73
+                && Catalog.Features.Select(f => f.Key).Distinct().Count() == 73,
+                "The option catalog must contain 73 distinct feature keys."
             );
             var first = new OptionStore(path, f => f.Group == "EVE" ? "EVE missing" : null);
             Check(first.Enabled("Rendering.ShaderConstantUpdates"), "Supported shader constants enabled on first config creation");
-            Check(!first.Enabled("Rendering.RustShaderSubmission"), "Experimental submission remains opt-in");
-            Check(!first.Enabled("EVE.CloudShaderPacking"), "Cloud shader compilation remains opt-in");
+            Check(first.Enabled("Stock.FlightUiLifecycle"), "UI lifecycle repair defaults on");
+            Check(first.Enabled("Stock.PlanetLaunchReadiness"), "Launch readiness defaults on");
+            Check(first.Enabled("Rendering.BlendFactorNormalization"), "Blend-factor normalization defaults on with its point-light dependency");
+            Check(first.Enabled("Rendering.ShadowDrawBatching"), "Shadow draw batching defaults on");
+            Check(first.Enabled("Rendering.RustShaderSubmission"), "Accepted Rust submission defaults on when supported");
+            Check(Catalog.Features.First(f => f.Key == "EVE.CloudShaderPacking").DefaultEnabled && !first.Enabled("EVE.CloudShaderPacking"),
+                "Accepted cloud shader packing defaults on but still requires EVE");
             Check(!first.Enabled("EVE.CloudMapPacking") && !Catalog.Features.First(f => f.Key == "EVE.CloudMapPacking").DefaultEnabled,
                 "Cloud map packing remains opt-in");
-            Check(!first.Enabled("Stock.DeltaVResetIndex"), "Delta-V reset index remains opt-in until broader coverage");
+            Check(first.Enabled("Stock.DeltaVResetIndex"), "Accepted delta-V reset index defaults on when supported");
             Check(!Catalog.Features.Any(f => f.Key == "Stock.AxisGroupParallel" || f.Key == "KSPCommunityFixes.RendererTreeBatch"), "Unaccepted parallel experiments are absent from the release catalog");
             Check(first.Enabled("FAR.ExposurePoolReset") && first.Enabled("Stock.OverlayCameraCleanup") && first.Enabled("Deferred.SsrResourceCleanup"), "Supported lifetime corrections default on");
             Check(first.Enabled("CameraTools.ToolbarLifetime"), "Supported toolbar ownership correction defaults on");
+            Check(first.Enabled("Scatterer.ShadowCopyLifetime"), "Conditional shadow resource cleanup defaults on after user acceptance");
+            Check(first.Enabled("Scatterer.ScreenCopyReuse"), "Screen-copy reuse defaults on after explicit user acceptance");
             Check(first.Enabled("FAR.RustRendererFilter"), "Accepted native FAR filter defaults on when supported");
             Check(first.Enabled("FAR.RustRendererSetup"), "Accepted native FAR property preparation defaults on when supported");
             Check(first.Created && first.Enabled("Stock.ExhaustSync") && !first.Enabled("EVE.CurveBakeHoist"), "Detect and generate");
@@ -51,6 +58,8 @@ static class OptionStoreTests
             File.Delete(path);
             var regenerated = new OptionStore(path, f => null);
             Check(!regenerated.Enabled("EVE.CloudMapPacking"), "Fresh compatible installations leave cloud map packing disabled");
+            Check(Catalog.Features.First(f => f.Key == "EVE.CloudPassFusion").DefaultEnabled && regenerated.Enabled("EVE.CloudPassFusion"),
+                "Accepted pass fusion defaults on with its supported shader-packing parent");
             Check(
                 regenerated.Created
                 && regenerated.Enabled("Stock.ExhaustSync")
@@ -76,6 +85,8 @@ static class OptionStoreTests
             File.WriteAllText(path, original);
             foreach (var pair in new[]
             {
+                new[] { "CloudShaderPacking", "CloudPassFusion", "EVE" },
+                new[] { "InstancedPointLights", "BlendFactorNormalization", "Rendering" },
                 new[]
                 {
                     "FrameGeneration",
@@ -147,7 +158,7 @@ static class OptionStoreTests
 
             Check(failed && Directory.Exists(blocked), "Filesystem failure surfaces without replacing user directory");
             Check(Directory.GetFiles(root, "*.tmp").Length == 0, "Failed config publication cleans temporary file");
-            Console.WriteLine("Options: 66 feature keys checked; config creation, edits, dependencies and recovery passed.");
+            Console.WriteLine("Options: " + Catalog.Features.Length + " feature keys checked; config creation, edits, dependencies and recovery passed.");
         }
         finally
         {

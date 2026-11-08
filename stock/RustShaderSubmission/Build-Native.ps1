@@ -19,7 +19,7 @@ if(!$Audit) {
     New-Item -ItemType Directory -Force $assets | Out-Null
     Copy-Item -LiteralPath "$OutputDirectory\KoeShaderSubmission.dll" -Destination "$assets\KoeShaderSubmission.dll"
     $sourceHashes=@{}
-    foreach($name in @('Submission.rs','ValueApply.rs','UnityAbi.rs','UnityAbi.h','NativeSubmission.cpp','Parallel.rs','PropertyIndex.rs','Build-Rust.ps1','Build-Native.ps1')) {
+    foreach($name in @('Submission.rs','ValueApply.rs','ValuePlan.rs','UnityAbi.rs','UnityAbi.h','NativeSubmission.cpp','Parallel.rs','PropertyIndex.rs','Build-Rust.ps1','Build-Native.ps1')) {
         $sourceHashes[$name]=(Get-FileHash -LiteralPath (Join-Path $PSScriptRoot $name)).Hash.ToLowerInvariant()
     }
     $manifest=@{binarySha256=(Get-FileHash -LiteralPath "$assets\KoeShaderSubmission.dll").Hash.ToLowerInvariant();sources=$sourceHashes}

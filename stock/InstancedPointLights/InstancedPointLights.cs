@@ -18,6 +18,8 @@ namespace KerbalOverEngineering.InstancedPointLights
         [UnmanagedFunctionPointer(CallingConvention.Cdecl, CharSet = CharSet.Unicode)]
         delegate int Initialize(string folder, int mode);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        delegate int Configure(int value);
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         delegate void Set(int value);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         delegate IntPtr Pointer();
@@ -55,6 +57,14 @@ namespace KerbalOverEngineering.InstancedPointLights
                 IntPtr module = LoadLibraryW(Path.Combine(folder, "KoeInstancedLights.dll"));
                 if (module == IntPtr.Zero)
                     throw new InvalidOperationException("Native loader: " + Marshal.GetLastWin32Error());
+                bool normalize = Settings.Enabled("Rendering.BlendFactorNormalization");
+                IntPtr configurePointer = GetProcAddress(module, "ConfigureBlendFactorNormalization");
+                if (configurePointer != IntPtr.Zero)
+                {
+                    var configure = (Configure)Marshal.GetDelegateForFunctionPointer(configurePointer, typeof(Configure));
+                    if (configure(normalize ? 1 : 0) != 0) throw new InvalidOperationException("Blend-factor configuration arrived after native initialization");
+                }
+                else if (normalize) Debug.LogWarning("[KOE PointLights] BlendFactorNormalization unavailable in this native adapter");
                 scene = Function<Set>(module, "SetInstancedLightsScene");
                 mode = Function<Set>(module, "SetInstancedLightsMode");
                 renderEvent = Function<Pointer>(module, "GetInstancedLightsRenderEvent")();

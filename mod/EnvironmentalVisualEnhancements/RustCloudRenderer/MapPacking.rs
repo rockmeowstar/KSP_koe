@@ -11,23 +11,14 @@ fn restore(destination: &[u32], packed: u32, lane: u32) -> Result<Vec<Op>, Strin
         return Err("sample output must be a full temporary".into());
     }
     let register = destination[1];
-    Ok(vec![
-        Op::decode(vec![
-            (5 << 24) | 54,
-            0x00100012,
-            register,
-            0x0010000a | (lane << 4),
-            packed,
-        ])?,
-        Op::decode(vec![(5 << 24) | 54, 0x00100062, register, 0x00004001, 0])?,
-        Op::decode(vec![
-            (5 << 24) | 54,
-            0x00100082,
-            register,
-            0x00004001,
-            1f32.to_bits(),
-        ])?,
-    ])
+    // AI-generated comment: BC5 supplies (red, green, 0, 1); each BC4 result is (channel, 0, 0, 1).
+    Ok(vec![Op::decode(vec![
+        (5 << 24) | 54,
+        0x001000f2,
+        register,
+        0x00100e86 | (lane << 4),
+        packed,
+    ])?])
 }
 
 fn rewrite(ops: &[Op]) -> Result<(Vec<Op>, usize), String> {
@@ -234,11 +225,10 @@ mod tests {
         assert_eq!(n, 1);
         assert_eq!(ops.iter().filter(|v| v.opcode == 72).count(), 1);
         let moves: Vec<_> = ops.iter().filter(|v| v.opcode == 54).collect();
-        assert_eq!(moves.len(), 6);
-        assert_eq!(moves[0].operands[1].swizzle, [0; 4]);
-        assert_eq!(moves[3].operands[1].swizzle, [1; 4]);
-        assert_eq!(moves[1].operands[0].mask, 6);
-        assert_eq!(moves[2].operands[0].mask, 8);
+        assert_eq!(moves.len(), 2);
+        assert_eq!(moves[0].operands[1].swizzle, [0, 2, 2, 3]);
+        assert_eq!(moves[1].operands[1].swizzle, [1, 2, 2, 3]);
+        assert!(moves.iter().all(|op| op.operands[0].mask == 15));
     }
     #[test]
     fn changed_coordinates_and_samplers_are_rejected() {

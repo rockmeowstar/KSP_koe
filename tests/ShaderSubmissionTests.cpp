@@ -206,6 +206,24 @@ static void outerCases(Api& api) {
         free(reinterpret_cast<Array<uint8_t>*>(device.data()+8616)->data);
     }
 }
+static void reuseCases(Api& api) {
+    std::mt19937 rng(81); Corpus c(rng,2);
+    Array<uint8_t> original{},rust{}; original.label=rust.label=1;
+    auto name=c.names[0]; auto descriptor=c.descs[0]; auto parameter=c.values[0];
+    for(unsigned i=0;i<100;++i) {
+        if(!c.data.empty()) c.data[i%c.data.size()]^=uint8_t(i+1);
+        c.names[0]=(i%4==0)?name+10000:name;
+        c.descs[0]=(i%3==0)?(descriptor&0xfffff):descriptor;
+        c.values[0].name=(i%5==0)?parameter.name+20000:parameter.name;
+        c.values[0].arraySize=(i%7==0)?0:parameter.arraySize;
+        c.sync(); original.size=rust.size=0;
+        api.prepare(&c.program,&c.sheet,&original);
+        require(KoeRustPrepare(&c.program,&c.sheet,&rust,&api)==1,"reuse prepare rejected valid input");
+        require(canonical(original,c.program)==canonical(rust,c.program),"reused layout/value output differs");
+    }
+    free(original.data);free(rust.data);
+    printf("PASS repeated inputs: values, reused name buffers, descriptions and parameter mutations\n");
+}
 static void benchmark(Api& api) {
     std::mt19937 rng(81);Corpus denseCase(rng,2),compactCase(rng,1);
     for(auto* c:{&compactCase,&denseCase}) {
@@ -236,6 +254,7 @@ int main(int argc,char** argv) {
         bulkPreparation(api);
         valueCases();printf("PASS value application 24000 IEEE/integer/vector/matrix cases\n");
         outerCases(api);printf("PASS complete submission 150 seven-stage layouts\n");
+        reuseCases(api);
         benchmark(api);
         require(MH_DisableHook(MH_ALL_HOOKS)==MH_OK,"restore Unity functions");require(MH_Uninitialize()==MH_OK,"release fixture hooks");
         printf("PASS checks=%zu\n",checks);return 0;

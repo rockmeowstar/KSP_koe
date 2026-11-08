@@ -32,6 +32,7 @@ static class CompatibilityTests
         try
         {
             Check(!CommunityFixes.Present && CommunityFixes.Ready, "No KSPCF: normal initialization");
+            Check(CommunityFixes.NeedsPostLoad("Stock.PlanetLaunchReadiness"), "Check launch-site patch ownership after KSPCF initialization");
             Check(CommunityFixes.Reason("Stock.ExhaustSync") == null, "No KSPCF: exhaust available");
             Check(CommunityFixes.DefaultReason("Stock.ExhaustSync") == null, "Absent upstream leaves default enabled");
             var fixture = Assembly.LoadFile(Path.GetFullPath(args[0]));
@@ -94,9 +95,11 @@ static class CompatibilityTests
             Action<string, bool> setPatch = (name, value) => setter.Invoke(null, new object[] { name, value });
             var registry = (IDictionary)main.GetField("patchInstances").GetValue(null);
             Check(CommunityFixes.Present && !CommunityFixes.Ready, "Installed is not the same as initialized");
+            Check(CommunityFixes.Reason("Stock.PlanetLaunchReadiness") != null, "Launch readiness waits for actual KSPCF patch ownership");
             Check(CommunityFixes.Reason("Stock.DlcEarlyPreparation") != null, "Do not build a cache before actual loader ownership is known");
             main.GetProperty("SettingsNode").SetValue(null, new object (), null);
             Check(CommunityFixes.Ready, "Post-load settings available");
+            Check(CommunityFixes.Reason("Stock.PlanetLaunchReadiness") == null, "KSPCF presence alone does not disable launch readiness");
             Check(CommunityFixes.Reason("Stock.ExhaustSync") == null, "Installed KSPCF with raycast patch disabled does not suppress KOE");
             var fast = fixture.GetType("KSPCommunityFixes.Performance.KSPCFFastLoader").GetProperty("IsPatchEnabled");
             fast.SetValue(null, true, null);

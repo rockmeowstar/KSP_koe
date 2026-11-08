@@ -20,6 +20,8 @@ PortraitFrameFix - MIT
 PqsNoiseFix - MIT
 PropellantRequestFix - MIT
 EventPathFix - MIT
+FlightUiLifetimeFix - MIT
+PlanetLaunchReadinessFix - MIT
 DeltaVReadBatchFix - MIT
 StageDeltaVFix - MIT
 FAR EventPathFix integration - MIT (external FAR runtime not redistributed)
@@ -32,6 +34,10 @@ EVE CloudLoopFix and Rust coverage kernel - MIT (Rust compiler support: MIT; see
 EVE CurveBakeFix - MIT
 EVE ShaderCorrectionGuards - MIT (MinHook/HDE: BSD-2-Clause)
 EVE RustCloudRenderer - MIT (Rust standard library: MIT option selected; DXBC hashing: University of Illinois/NCSA)
+EVE CloudPassFusion - MIT (MinHook/HDE: BSD-2-Clause; DXBC hashing: University of Illinois/NCSA)
+Scatterer ShadowCopyLifetimeFix - MIT (external Scatterer runtime not redistributed)
+Scatterer ScreenCopyFix - MIT (external Scatterer runtime not redistributed)
+ShadowDrawBatching - MIT (MinHook/HDE: BSD-2-Clause)
 Firefly IdleFix - MIT
 Parallax Continued MenuSkyboxFix - MIT
 MinHook and HDE - BSD-2-Clause

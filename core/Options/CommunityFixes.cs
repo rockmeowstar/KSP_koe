@@ -142,7 +142,8 @@ namespace KerbalOverEngineering.Options
                 || key == "Stock.DlcLz4Cache"
                 || key == "Stock.DlcEarlyPreparation"
                 || key == "Stock.PqsNoisePreparation"
-                || key == "Stock.PqsPatchStateMemo";
+                || key == "Stock.PqsPatchStateMemo"
+                || key == "Stock.PlanetLaunchReadiness";
         }
 
         public static bool ReplacesStockLoader(string key)

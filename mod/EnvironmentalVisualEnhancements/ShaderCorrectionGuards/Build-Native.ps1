@@ -10,6 +10,8 @@ if (-not $OutputDirectory) {
     $OutputDirectory = Join-Path $projectRoot 'artifacts\cloud-guards-production'
 }
 New-Item -ItemType Directory -Force $OutputDirectory | Out-Null
+python "$PSScriptRoot/Generate-CloudFusionHooks.py" --sdk "$windowsSdk/Include/$sdkVersion/um" --output "$OutputDirectory/CloudFusionHooks.generated.h"
+if($LASTEXITCODE){throw 'Cloud fusion boundary generation failed'}
 $savedLib = $env:LIB
 try {
     $env:LIB="$compilerDirectory\lib\x64;$windowsSdk\Lib\$sdkVersion\ucrt\x64;$windowsSdk\Lib\$sdkVersion\um\x64"
@@ -19,6 +21,8 @@ try {
 $includePaths = @("$compilerDirectory\include","$windowsSdk\Include\$sdkVersion\ucrt","$windowsSdk\Include\$sdkVersion\shared","$windowsSdk\Include\$sdkVersion\um","$projectRoot\third_party\minhook\include","$projectRoot\core\ShaderPatch") | ForEach-Object {
     "/I$_"
 }
+$includePaths += "/I$OutputDirectory"
+$includePaths += "/I$windowsSdk/Include/$sdkVersion/winrt"
 $libraryPaths = @("$compilerDirectory\lib\x64","$windowsSdk\Lib\$sdkVersion\ucrt\x64","$windowsSdk\Lib\$sdkVersion\um\x64") | ForEach-Object {
     "/LIBPATH:$_"
 }
@@ -27,7 +31,7 @@ $minHookSources = @('buffer.c','hook.c','trampoline.c','hde\hde64.c') | ForEach-
 }
 Push-Location $OutputDirectory
 try {
-    & "$compilerDirectory\bin\Hostx64\x64\cl.exe" /nologo /W4 /O2 /MT /LD /EHsc /std:c++17 /DNOMINMAX @includePaths "/I$projectRoot\third_party\DxbcHash" /FIWindows.h "$PSScriptRoot\NativeCloudGuard.cpp" "$projectRoot\third_party\DxbcHash\DxilHash.cpp" @minHookSources RustCloudCompiler.lib /link @libraryPaths d3d11.lib bcrypt.lib advapi32.lib userenv.lib ws2_32.lib ntdll.lib /OUT:KoeCloudGuard.dll
+    & "$compilerDirectory\bin\Hostx64\x64\cl.exe" /nologo /W4 /O2 /MT /LD /EHsc /std:c++17 /DNOMINMAX @includePaths "/I$projectRoot\third_party\DxbcHash" /FIWindows.h "$PSScriptRoot\NativeCloudGuard.cpp" "$PSScriptRoot\CloudPassFusion.cpp" "$projectRoot\third_party\DxbcHash\DxilHash.cpp" @minHookSources RustCloudCompiler.lib /link @libraryPaths d3d11.lib dxgi.lib d3dcompiler.lib user32.lib bcrypt.lib advapi32.lib userenv.lib ws2_32.lib ntdll.lib /OUT:KoeCloudGuard.dll
     if ($LASTEXITCODE -ne 0) {
         throw 'Cloud recipe native compilation failed'
     }

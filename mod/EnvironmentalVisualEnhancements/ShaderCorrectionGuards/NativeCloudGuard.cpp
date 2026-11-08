@@ -29,6 +29,16 @@ using CreatePS = HRESULT(STDMETHODCALLTYPE *)(ID3D11Device *, const void *, SIZE
 using SetPS = void(STDMETHODCALLTYPE *)(ID3D11DeviceContext *, ID3D11PixelShader *, ID3D11ClassInstance *const *, UINT);
 static CreatePS originalCreate{};
 static SetPS originalSet{};
+extern "C" void RememberCloudFusionBinding(ID3D11DeviceContext*,ID3D11PixelShader*);
+extern "C" HRESULT STDMETHODCALLTYPE KoeCreateCloudShaderOriginal(ID3D11Device* device,const void* bytes,SIZE_T length,ID3D11ClassLinkage* linkage,ID3D11PixelShader** output){
+    return originalCreate?originalCreate(device,bytes,length,linkage,output):E_FAIL;
+}
+using ShaderObserver = void(*)(ID3D11PixelShader*,const void*,size_t);
+static std::atomic<ShaderObserver> shaderObserver{};
+extern "C" __declspec(dllexport) void ObserveCloudShaderCreations(ShaderObserver observer){shaderObserver.store(observer,std::memory_order_release);}
+static void ObserveShader(ID3D11PixelShader* shader,const void* bytes,size_t length){
+    auto observer=shaderObserver.load(std::memory_order_acquire);if(observer&&shader)observer(shader,bytes,length);
+}
 #include "CloudMapCache.h"
 static BCRYPT_ALG_HANDLE algorithm{};
 static void *createTarget{};
@@ -132,6 +142,7 @@ static HRESULT CreatePacked(ID3D11Device *device, const void *bytes, SIZE_T leng
                             ID3D11ClassLinkage *linkage, ID3D11PixelShader **output)
 {
     HRESULT originalResult = originalCreate(device, bytes, length, linkage, output);
+    if(SUCCEEDED(originalResult)&&output&&*output)ObserveShader(*output,bytes,length);
     if(SUCCEEDED(originalResult)&&output&&*output)CloudMaps::BuildProgram(device,bytes,length,linkage,*output);
     if (FAILED(originalResult) || !packingEnabled.load(std::memory_order_relaxed) || !bytes || !output || !*output || length < 32 ||
         length > UINT_MAX || device->GetFeatureLevel() < D3D_FEATURE_LEVEL_11_0)
@@ -194,6 +205,7 @@ static HRESULT CreatePacked(ID3D11Device *device, const void *bytes, SIZE_T leng
             HRESULT hr = originalCreate(device, code.data(), code.size(), linkage, &binding->candidates[variant]);
             if (SUCCEEDED(hr) && binding->candidates[variant])
             {
+                ObserveShader(binding->candidates[variant],code.data(),code.size());
                 if(binding->candidates[variant]==*output)
                 {
                     binding->candidates[variant]->Release();binding->candidates[variant]=nullptr;
@@ -306,6 +318,7 @@ static void STDMETHODCALLTYPE Set(ID3D11DeviceContext *context, ID3D11PixelShade
     }
     CloudMaps::Remember(context,shader,count);
     originalSet(context, shader, instances, count);
+    RememberCloudFusionBinding(context,shader);
 }
 extern "C" __declspec(dllexport) void SetCloudGuardsEnabled(int value)
 {

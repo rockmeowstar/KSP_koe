@@ -27,6 +27,7 @@ namespace KoeCfDlcCache
             Path.DirectorySeparatorChar == '\\' ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
         static FieldInfo hash, bundle;
         static CacheStore store;
+        static GenerationCache generation;
         static int hits, fallbacks, prepared, rejected;
         static bool running;
         int building;
@@ -92,7 +93,17 @@ namespace KoeCfDlcCache
                     Debug.LogWarning("[KOE EarlyDlcCache] Mod fingerprint unavailable: " + fingerprint.Exception.GetBaseException().Message);
                     yield break;
                 }
-                store = new CacheStore(Path.Combine(root, "KerbalOverEngineering-cache/CF-DLC-LZ4-v1/" + fingerprint.Result),
+                var retention = Task.Factory.StartNew(() => GenerationCache.Open(Path.Combine(root, "KerbalOverEngineering-cache/CF-DLC-LZ4-v1"), fingerprint.Result));
+                while (!retention.IsCompleted) yield return null;
+                if (retention.IsFaulted)
+                {
+                    Debug.LogWarning("[KOE EarlyDlcCache] Cache ownership unavailable; original loader retained: " + retention.Exception.GetBaseException().Message);
+                    yield break;
+                }
+                generation = retention.Result;
+                if (generation.RemovedGenerations != 0)
+                    Debug.Log("[KOE EarlyDlcCache] Removed " + generation.RemovedGenerations + " obsolete generations, " + generation.RemovedBytes + " bytes");
+                store = new CacheStore(generation.CurrentDirectory,
                     engine + "|mods=" + fingerprint.Result);
                 Debug.Log("[KOE EarlyDlcCache] Preparing " + entries.Count + " bundles; GameData=" + fingerprint.Result);
                 int limit = Math.Max(1, Math.Min(Environment.ProcessorCount, entries.Count));

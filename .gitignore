@@ -3,6 +3,7 @@
 /artifacts/package38-build/
 /artifacts/compatibility-tests/
 /artifacts/event-path-tests/
+/artifacts/planet-launch-readiness-tests/
 /artifacts/delta-v-read-batch-tests/
 /artifacts/stage-delta-v-tests/
 /artifacts/far-rust-filter/
@@ -18,6 +19,8 @@
 /artifacts/mod-contract-tests/
 /artifacts/shader-constants-production/
 /artifacts/cloud-map-production/
+/artifacts/cloud-fusion-tests/
+/artifacts/submission-tests/
 *.obj
 *.pdb
 *.ilk

@@ -1,34 +1,41 @@
 <p align="center">
-  <img src="assets/readme-hero-0.15.7-eight.svg" alt="KerbalOverEngineering 0.15.7 — eight retained full-cycle performance metrics" width="100%">
+  <img src="assets/readme-hero-0.15.8-eight.svg" alt="KerbalOverEngineering 0.15.8 — eight retained full-cycle performance metrics" width="100%">
 </p>
 
 <p align="center">
-  <img src="assets/readme-hero-0.15.7.svg" alt="KerbalOverEngineering 0.15.7 — six flight configurations, base FPS and physics rates" width="100%">
+  <img src="assets/readme-hero-0.15.8.svg" alt="KerbalOverEngineering 0.15.8 — retained 0.15.7 comparison across six flight configurations" width="100%">
 </p>
 
 <p align="center">
-  <img src="assets/release-history-0.15.7.svg" alt="KOE release history from no KOE through 0.15.7 — median base FPS and physics with three-sample min/max ranges" width="100%">
+  <img src="assets/release-history-0.15.8.svg" alt="KOE release history from no KOE through 0.15.8 — median base FPS and physics with three-sample min/max ranges" width="100%">
 </p>
 
 <p align="center">
-  <a href="https://github.com/rockmeowstar/ksp_koe/releases/tag/0.15.7"><img src="https://img.shields.io/badge/release-0.15.7-8b5cf6?style=flat-square" alt="Release 0.15.7"></a>
+  <a href="https://github.com/rockmeowstar/ksp_koe/releases/tag/0.15.8"><img src="https://img.shields.io/badge/release-0.15.8-8b5cf6?style=flat-square" alt="Release 0.15.8"></a>
   <img src="https://img.shields.io/badge/KSP-1.12.5-64748b?style=flat-square" alt="KSP 1.12.5">
-  <img src="https://img.shields.io/badge/Feature_flags-66-14b8a6?style=flat-square" alt="66 feature flags">
+  <img src="https://img.shields.io/badge/Feature_flags-73-14b8a6?style=flat-square" alt="73 feature flags">
   <img src="https://img.shields.io/badge/Local_checks-verified_2026--11--08-22c55e?style=flat-square" alt="Local validation snapshot: November 8, 2026">
   <a href="#ai-disclosure"><img src="https://img.shields.io/badge/AI_code-39%25_estimated-8b5cf6?style=flat-square" alt="Estimated AI-generated code: 39%"></a>
   <a href="#ai-disclosure"><img src="https://img.shields.io/badge/AI_tests-80%25_estimated-a78bfa?style=flat-square" alt="Estimated AI-generated tests: 80%"></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/rockmeowstar/ksp_koe/releases/tag/0.15.7">Download 0.15.7</a> ·
+  <a href="https://github.com/rockmeowstar/ksp_koe/releases/tag/0.15.8">Download 0.15.8</a> ·
   <a href="https://spacedock.info/mod/4787/KerbalOverengineering%20(KOE)">SpaceDock / CKAN</a> ·
   <a href="https://forum.kerbalspaceprogram.com/topic/232077-1125-kerbaloverengineering-koe-performance-optimization-for-ksp-and-its-mods/">Forum</a> ·
   <a href="https://github.com/rockmeowstar/ksp_koe/issues">Report an issue</a>
 </p>
 
-KOE optimizes loading, resource handling, scene updates and rendering in KSP and supported mods. It combines **66 individually configurable options across 33 modules**. Frame generation is optional; most features do not require an NVIDIA GPU.
+KOE optimizes loading, resource handling, scene updates and rendering in KSP and supported mods. It combines **73 individually configurable options across 38 modules**. Frame generation is optional; most features do not require an NVIDIA GPU.
 
-0.15.7 is a maintenance release: it fixes resource cleanup in Deferred SSR, FAR, CameraTools, Firefly and stock overlay cameras across scene changes. Experimental cloud-map packing remains opt-in. Existing settings are preserved, and frame generation remains off by default.
+**0.15.8** brings together the accepted rendering and loading fixes:
+
+- EVE cloud-pass fusion and shader packing, with shared native hooks.
+- Rust shader submission, shadow-draw batching and redundant blend-state cleanup.
+- Scatterer screen-copy reuse and shadow-buffer cleanup.
+- Flight UI cleanup, planet readiness, indexed delta-v resets and bounded DLC cache retention.
+
+Accepted features default on when their dependencies are supported. Existing settings are preserved. Frame generation and experimental cloud-map packing remain off by default. The unsuccessful NormalizeRsq experiment is not included.
 
 ## Install
 
@@ -50,6 +57,8 @@ Windows x64 / KSP 1.12.5 is the tested platform. D3D11 modules require their res
 | FAR / FreeIVA / Waterfall / Firefly | Renderer and collider lookups, refresh traversal, redundant calls and inactive-effect work |
 | Rendering | Deferred light integration and optional frame interpolation with quality/deadline checks |
 
+The 0.15.8 defaults enable `Stock.DeltaVResetIndex`, `Rendering.RustShaderSubmission` and `EVE.CloudShaderPacking`; `EVE.CloudPassFusion` requires the last option. Existing configs keep their choices and missing keys remain off: enable the desired keys manually or back up and remove `Options.cfg` to regenerate supported defaults.
+
 Frame interpolation is disabled by default: set `FrameGeneration = true` in the `[Rendering]` section of `GameData/KerbalOverEngineering/Options.cfg` to enable it. When enabled, it uses the accepted independent-layer pipeline in conservative mode: a 60 FPS target, capped at the current monitor refresh rate. Its separate `GameData/KerbalOverEngineering/FrameGeneration.cfg` includes the experimental `FullGeneration` flag. Set it to `true` to fill toward `TargetFPS`, initially set to your monitor's refresh rate when the config is created. Both modes have a hard limit of three additional frames per rendered frame and never target more than the monitor can display. Quality checks can reject frames, so the requested rate is not guaranteed.
 
 Integrations are grouped under [`stock/`](stock/) and [`mod/`](mod/). The complete option list and dependency categories are in [`Catalog`](core/Options/OptionStore.cs).
@@ -64,7 +73,24 @@ The automatic material-instancing experiment was removed: the tested Deferred bu
 
 ## Measured performance
 
-### 0.15.7 flight samples
+### Current accepted configuration
+
+The first banner uses the retained November 8 full cycle with the accepted features enabled, compared with the historical November 5 no-KOE reference. It is not a new matched A/B or a cold-start claim. Frame generation is off; the craft has 353 parts in the editor and 345 in flight.
+
+| Metric | Historical no KOE | Accepted configuration |
+|---|---:|---:|
+| Active loading total | 74.49 s | 67.38 s |
+| KSC FPS | 28.55 | 44.29 |
+| Launchpad FPS | 20.86 | 35.49 |
+| Full powered-flight FPS | 12.38 | 21.70 |
+| After-fuel FPS | 18.40 | 24.97 |
+| Powered-flight physics/s | 24.77 | 41.89 |
+
+Visible portrait FPS is derived from the base flight rate, 21.70 FPS; it was not independently remeasured. The launch-pause card reports the largest frame around ignition, **293.97 ms**, with no matched baseline. This is a different metric from the earlier activation-call timing. The space card remains a post-fuel proxy. [Full-cycle banner data](assets/benchmarks-0.15.8.json).
+
+The newest three-sample middle-flight check of the accepted configuration measured **21.25 FPS / 41.51 physics steps/s**; after fuel, **23.96 FPS / 47.11 physics steps/s**. These short windows and the full-flight averages cover different intervals. The NormalizeRsq candidate provided no measured benefit and is excluded.
+
+### Retained 0.15.7 flight samples
 
 Three 15-real-second mid-flight samples per configuration, starting at roughly 10.68 km and 378.5 m/s; target pitch 45°, heading east, 345 parts. Frame generation is off. Values below are medians; physics means simulation steps per real second.
 
@@ -79,7 +105,7 @@ With FAR 0.16.2 and KSPCF held constant, KOE improved the recorded median by **7
 
 The banner's repeatability index is `100 − average relative range`, averaging the FPS and physics ranges divided by their respective means. It describes these three samples and is not statistical confidence. [Sample data and limitations](assets/benchmarks-0.15.7.json).
 
-The third chart compares 0.15.0–0.15.6 with fresh three-window samples, reusing the previous 0.15.7 and no-KOE samples. Its bands show the minimum and maximum window averages. Recurring stock UI/EVA exceptions were present during sampling, so the chart includes that overhead; it is not an error-free ordinary-flight benchmark. [Release-history data and exception counts](assets/release-history-0.15.7.json).
+The third chart retains the 0.15.0–0.15.7 and no-KOE samples, then adds the new three-window control for the accepted 0.15.8 configuration. Bands show the minimum and maximum window averages. Older points include recurring stock UI/EVA exception overhead; the new point has no exceptions inside its measured windows. These are retained runs, not a new randomized comparison of every release. Complete-frame calculations are used consistently across chart points. [Release-history data and exception counts](assets/release-history-0.15.8.json).
 
 ### Earlier full-cycle measurements (0.15.6)
 
@@ -118,12 +144,12 @@ The badge above records the **latest local validation snapshot**, not a continuo
 |---|---:|---|
 | [Event paths](tests/Test-EventPaths.ps1) | 39,743 checks passed | Static patch bindings and event/resource algorithms; player-only bindings are explicitly skipped by this runner |
 | [Delta-v batching](tests/Test-DeltaVReadBatch.ps1) | 7,255 checks passed | Results compared with stock `PartSet` sums |
-| [KSPCF compatibility](tests/Test-Compatibility.ps1) | 100 + 10 + 8 checks passed | 16 patch combinations, unknown API and older KSPCF fixtures |
+| [KSPCF compatibility](tests/Test-Compatibility.ps1) | 103 + 11 + 9 checks passed | 16 patch combinations, unknown API and older KSPCF fixtures |
 | [Cloud geometry](tests/CoverageGeometryTests.cs) | 1,717 checks passed | Geometry and culling calculations |
 | [Loading budgets](tests/LoadingResourcesTests.cs) | 345 checks passed | Hardware-dependent worker/memory policy |
 | [GPU drag reduction](tests/Test-DragReduction.ps1) | 48 GPU cases passed | Exact integer statistics; render/compute/OM UAV state and counters restored |
 | [DLC cache](tests/Test-DlcCache.ps1) | 13 checks passed | Invalidation, corruption, source replacement and path isolation |
-| [Options](tests/OptionStoreTests.cs) | 66 distinct keys checked | Config creation, preservation, dependencies and recovery |
+| [Options](tests/OptionStoreTests.cs) | 73 distinct keys checked | Config creation, preservation, dependencies and recovery |
 | [FAR pool cleanup](tests/Test-FarExposurePool.ps1) | 2,005 checks passed | Reset behavior and installed FAR bindings |
 | [CameraTools callbacks](tests/Test-CameraToolsLifetime.ps1) | 501 checks passed | Managed toolbar callback ownership |
 | [Firefly cleanup](tests/Test-FireflyLifetime.ps1) | 400 checks passed | Managed lifetime logic; does not exercise Unity rendering |
@@ -133,6 +159,11 @@ The badge above records the **latest local validation snapshot**, not a continuo
 | [Map/unmap capture](tests/MapCaptureTests.cpp) | 1,787 native checks passed | Captured/GPU bytes, interleaved mappings, thread handoff, failed maps and table rehash |
 | [Capture lookup cache](tests/MapCaptureTests.cpp) | 2,532 native checks passed | Wanted-buffer transitions, context switches and capture/GPU byte parity with the cache enabled or disabled |
 | [Shader constants](tests/ShaderConstantKernelTests.cpp) | 9,718 assembly checks; 9,721 Rust checks | Original Unity bytes and dirty flags, overlap and protected-page boundaries; 20,000 captured inputs replayed per backend |
+| [Rust shader submission](tests/Test-RustSubmission.ps1) | 55,276 differential checks; 6 Rust tests; 17 production checks | Original Unity value application, batching, activation guards and fallback modes |
+| [Cloud compiler](tests/Test-CloudPassFusion.ps1) | 21 tests passed | Rust packing and pass-fusion transformations; not a whole-scene pixel-parity claim |
+| [Flight UI](tests/FlightUiLifetimeTests.cs) | 274 IL checks passed | Supported scene-cleanup callback shape; lifetime behavior checked separately in game |
+| [Planet readiness](tests/Test-PlanetLaunchReadiness.ps1) | 5,287 IL/predicate checks passed | Loader ownership and readiness predicates; not universal content-parity proof |
+| [Scatterer](tests/ScattererScreenCopyTests.cs) | 1,000 requests; one command build | Invalidation, cleanup and command parity; 100 shadow-buffer recreations also checked |
 
 These numbers count checks, cases or keys as labelled—not separate test files or coverage percentages. **Line/branch coverage has not been measured.**
 

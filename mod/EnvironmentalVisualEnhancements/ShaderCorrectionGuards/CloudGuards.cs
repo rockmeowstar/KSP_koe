@@ -22,11 +22,14 @@ namespace KerbalOverEngineering.CloudGuards
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         delegate long Counter();
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        delegate int InitializeFusion();
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         delegate void Read([Out] long[] values, int count);
         Enable enable;
         Enable packing;
         Enable mapPacking;
         Action clearMaps, shutdownMaps;
+        Action clearFusion, shutdownFusion;
         Counter mapBinds;
         Read readMaps;
         bool sceneHandler, reportedMaps;
@@ -36,6 +39,7 @@ namespace KerbalOverEngineering.CloudGuards
             bool guardsEnabled = Settings.Enabled("EVE.ShaderCorrectionGuards");
             bool packingEnabled = Settings.Enabled("EVE.CloudShaderPacking") && SystemInfo.graphicsShaderLevel >= 50;
             bool mapsEnabled = Settings.Enabled("EVE.CloudMapPacking") && SystemInfo.graphicsShaderLevel >= 50;
+            bool fusionEnabled = Settings.Enabled("EVE.CloudPassFusion") && packingEnabled;
             if (!guardsEnabled && !packingEnabled && !mapsEnabled)
             {
                 Destroy(gameObject);
@@ -61,6 +65,18 @@ namespace KerbalOverEngineering.CloudGuards
                 int result = initialize(Path.Combine(folder, "base-guarded.koepatch"), Path.Combine(folder, "top-guarded.koepatch"), guardsEnabled ? 1 : 0);
                 if (result != 0)
                     throw new InvalidOperationException("Native init: " + result);
+                if (fusionEnabled)
+                {
+                    var initializeFusion = (InitializeFusion)Marshal.GetDelegateForFunctionPointer(GetProcAddress(module, "InitializeCloudPassFusion"), typeof(InitializeFusion));
+                    int fusionResult = initializeFusion();
+                    if (fusionResult == 0)
+                    {
+                        clearFusion = (Action)Marshal.GetDelegateForFunctionPointer(GetProcAddress(module, "ClearCloudPassFusion"), typeof(Action));
+                        shutdownFusion = (Action)Marshal.GetDelegateForFunctionPointer(GetProcAddress(module, "DisableCloudPassFusion"), typeof(Action));
+                        Debug.Log("[KOE CloudFusion] enabled; runtime Rust compiler; unsupported passes use original draws");
+                    }
+                    else Debug.LogWarning("[KOE CloudFusion] using original passes; native init=" + fusionResult);
+                }
                 GameEvents.onGameSceneLoadRequested.Add(OnSceneLoad);
                 sceneHandler = true;
                 Debug.Log("[KOE CloudGuards] guards=" + guardsEnabled + "; Rust half packing=" + packingEnabled + "; Rust map packing=" + mapsEnabled);
@@ -81,6 +97,7 @@ namespace KerbalOverEngineering.CloudGuards
 
         public void OnApplicationQuit()
         {
+            if (shutdownFusion != null) shutdownFusion();
             if (enable != null)
                 enable(0);
             if (packing != null) packing(0);
@@ -108,6 +125,7 @@ namespace KerbalOverEngineering.CloudGuards
 
         void OnSceneLoad(GameScenes scene)
         {
+            if (clearFusion != null) clearFusion();
             LogMaps("scene exit");
             if (clearMaps != null) clearMaps();
             if (mapBinds != null) sceneBinds = mapBinds();
@@ -116,6 +134,7 @@ namespace KerbalOverEngineering.CloudGuards
 
         public void OnDestroy()
         {
+            if (shutdownFusion != null) shutdownFusion();
             if (sceneHandler) GameEvents.onGameSceneLoadRequested.Remove(OnSceneLoad);
             if (shutdownMaps != null) shutdownMaps();
         }

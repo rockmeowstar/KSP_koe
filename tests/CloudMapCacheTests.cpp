@@ -64,8 +64,10 @@ static Com<ID3DBlob> Compile(const char *source, const char *profile)
 }
 int wmain(int argc, wchar_t **argv)
 {
-    if (argc != 4)
+    if (argc != 4 && argc != 5)
         return 2;
+    bool withFusion = argc == 5 && wcscmp(argv[4], L"--with-fusion") == 0;
+    if (argc == 5 && !withFusion) return 2;
     HMODULE dll = LoadLibraryW(argv[1]);
     if (!dll)
         return 3;
@@ -84,6 +86,15 @@ int wmain(int argc, wchar_t **argv)
         enable(1);
         limits(1024 * 1024, 1024 * 1024);
         Check(initialize(argv[2], argv[3], 0) == 0, "native hooks initialize");
+        if (withFusion)
+        {
+            auto fusion = reinterpret_cast<int (*)()>(GetProcAddress(dll,"InitializeCloudPassFusion"));
+            auto stats = reinterpret_cast<int (*)(unsigned long long *,unsigned)>(GetProcAddress(dll,"CloudFusionLiveStats"));
+            Check(fusion && stats, "fusion entry points exist");
+            Check(fusion() == 0, "fusion initializes after map hooks without duplicate registration");
+            unsigned long long values[10]{};
+            Check(stats(values,10)==0 && values[7]==1, "both map and fusion hooks remain enabled");
+        }
         long long stats[12]{};
         read(stats, 12);
         Check(stats[1] == 1, "map hooks enabled");
@@ -277,7 +288,7 @@ int wmain(int argc, wchar_t **argv)
         read(stats, 12);
         Check(stats[3] == 0 && stats[4] == 0, "shutdown releases CPU and GPU payloads");
         std::printf(
-            "Cloud maps: GPU byte parity, full upload, Map/Unmap copy, partial-write rejection, memory limit, scene clear and shutdown passed.\n");
+            "Cloud maps: GPU byte parity, full upload, Map/Unmap copy, partial-write rejection, memory limit, scene clear and shutdown passed. Fusion coexistence: %s.\n", withFusion ? "enabled" : "not requested");
         return 0;
     }
     catch (const std::exception &error)

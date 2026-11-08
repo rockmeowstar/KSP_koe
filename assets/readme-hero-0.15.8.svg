@@ -1,0 +1,159 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1420" viewBox="0 0 1800 1420">
+<title>KerbalOverEngineering: six flight configurations</title>
+<defs><linearGradient id="bg" x2="1" y2="1"><stop stop-color="#101827"/><stop offset="1" stop-color="#151127"/></linearGradient>
+<linearGradient id="accent"><stop stop-color="#5eead4"/><stop offset="1" stop-color="#a78bfa"/></linearGradient></defs>
+<rect width="1800" height="1420" rx="28" fill="url(#bg)"/>
+<g fill="none" stroke="#29324a"><circle cx="1630" cy="105" r="62"/><ellipse cx="1630" cy="105" rx="115" ry="29" transform="rotate(-28 1630 105)"/></g>
+<circle cx="1722" cy="55" r="5" fill="#5eead4"/>
+<g font-family="Segoe UI,Arial,sans-serif">
+<path d="M56 42 H130" stroke="url(#accent)" stroke-width="4" stroke-linecap="round"/>
+<text x="53" y="103" font-size="56" fill="#f1f5f9" font-weight="700" >KerbalOverEngineering</text>
+<text x="950" y="102" font-size="25" fill="#a9bad2" font-weight="500" >0.15.8 · retained 0.15.7 samples</text>
+<text x="57" y="149" font-size="20" fill="#a9bad2" font-weight="400" >3 × 15 real seconds · same mid-flight save · 2560 × 1440 · frame generation OFF</text>
+<text x="57" y="183" font-size="20" fill="#a9bad2" font-weight="400" >Start: ~10.68 km altitude · ~378.5 m/s · target pitch 45°, heading 90° (east) · 345 parts</text>
+<rect x="56" y="216" width="546" height="418" rx="16" fill="#172437" stroke="#2c354c"/>
+<text x="80" y="260" font-size="27" fill="#f1f5f9" font-weight="600" >No KSPCF, no KOE</text>
+<text x="80" y="298" font-size="22" fill="#a9bad2" font-weight="400" >No FAR</text>
+<text x="80" y="344" font-size="14" fill="#9aa8c2" font-weight="500" letter-spacing="1">MEDIAN FPS</text>
+<text x="339" y="344" font-size="14" fill="#9aa8c2" font-weight="500" letter-spacing="1">MEDIAN PHYSICS /s</text>
+<text x="77" y="411" font-size="68" fill="#5eead4" font-weight="700" >12.50</text>
+<text x="336" y="411" font-size="68" fill="#c4b5fd" font-weight="700" >25.01</text>
+<path d="M80 435 H578" stroke="#344158"/>
+<text x="80" y="466" font-size="14" fill="#8999b3" font-weight="500" >SAMPLE</text>
+<text x="247" y="466" font-size="14" fill="#8999b3" font-weight="500" text-anchor="end">FPS</text>
+<text x="577" y="466" font-size="14" fill="#8999b3" font-weight="500" text-anchor="end">PHYSICS STEPS/s</text>
+<text x="80" y="497" font-size="22" fill="#b9c5d8" font-weight="500" >01</text>
+<text x="247" y="497" font-size="22" fill="#dde6f4" font-weight="500" text-anchor="end">12.50</text>
+<text x="577" y="497" font-size="22" fill="#dde6f4" font-weight="500" text-anchor="end">25.01</text>
+<text x="80" y="528" font-size="22" fill="#b9c5d8" font-weight="500" >02</text>
+<text x="247" y="528" font-size="22" fill="#dde6f4" font-weight="500" text-anchor="end">11.86</text>
+<text x="577" y="528" font-size="22" fill="#dde6f4" font-weight="500" text-anchor="end">23.72</text>
+<text x="80" y="559" font-size="22" fill="#b9c5d8" font-weight="500" >03</text>
+<text x="247" y="559" font-size="22" fill="#dde6f4" font-weight="500" text-anchor="end">13.02</text>
+<text x="577" y="559" font-size="22" fill="#dde6f4" font-weight="500" text-anchor="end">26.03</text>
+<text x="80" y="605" font-size="18" fill="#a9bad2" font-weight="400" >Spread 9.28%</text>
+<text x="577" y="605" font-size="18" fill="#a9bad2" font-weight="400" text-anchor="end">Repeatability 90.72%</text>
+<rect x="626" y="216" width="546" height="418" rx="16" fill="#172437" stroke="#2c354c"/>
+<text x="650" y="260" font-size="27" fill="#f1f5f9" font-weight="600" >No KSPCF, no KOE</text>
+<text x="650" y="298" font-size="22" fill="#a9bad2" font-weight="400" >FAR 0.16.1.2</text>
+<text x="650" y="344" font-size="14" fill="#9aa8c2" font-weight="500" letter-spacing="1">MEDIAN FPS</text>
+<text x="909" y="344" font-size="14" fill="#9aa8c2" font-weight="500" letter-spacing="1">MEDIAN PHYSICS /s</text>
+<text x="647" y="411" font-size="68" fill="#5eead4" font-weight="700" >11.98</text>
+<text x="906" y="411" font-size="68" fill="#c4b5fd" font-weight="700" >23.96</text>
+<path d="M650 435 H1148" stroke="#344158"/>
+<text x="650" y="466" font-size="14" fill="#8999b3" font-weight="500" >SAMPLE</text>
+<text x="817" y="466" font-size="14" fill="#8999b3" font-weight="500" text-anchor="end">FPS</text>
+<text x="1147" y="466" font-size="14" fill="#8999b3" font-weight="500" text-anchor="end">PHYSICS STEPS/s</text>
+<text x="650" y="497" font-size="22" fill="#b9c5d8" font-weight="500" >01</text>
+<text x="817" y="497" font-size="22" fill="#dde6f4" font-weight="500" text-anchor="end">12.16</text>
+<text x="1147" y="497" font-size="22" fill="#dde6f4" font-weight="500" text-anchor="end">24.33</text>
+<text x="650" y="528" font-size="22" fill="#b9c5d8" font-weight="500" >02</text>
+<text x="817" y="528" font-size="22" fill="#dde6f4" font-weight="500" text-anchor="end">11.91</text>
+<text x="1147" y="528" font-size="22" fill="#dde6f4" font-weight="500" text-anchor="end">23.82</text>
+<text x="650" y="559" font-size="22" fill="#b9c5d8" font-weight="500" >03</text>
+<text x="817" y="559" font-size="22" fill="#dde6f4" font-weight="500" text-anchor="end">11.98</text>
+<text x="1147" y="559" font-size="22" fill="#dde6f4" font-weight="500" text-anchor="end">23.96</text>
+<text x="650" y="605" font-size="18" fill="#a9bad2" font-weight="400" >Spread 2.12%</text>
+<text x="1147" y="605" font-size="18" fill="#a9bad2" font-weight="400" text-anchor="end">Repeatability 97.88%</text>
+<rect x="1196" y="216" width="546" height="418" rx="16" fill="#172437" stroke="#2c354c"/>
+<text x="1220" y="260" font-size="27" fill="#f1f5f9" font-weight="600" >KSPCF, no KOE</text>
+<text x="1220" y="298" font-size="22" fill="#a9bad2" font-weight="400" >FAR 0.16.2</text>
+<text x="1220" y="344" font-size="14" fill="#9aa8c2" font-weight="500" letter-spacing="1">MEDIAN FPS</text>
+<text x="1479" y="344" font-size="14" fill="#9aa8c2" font-weight="500" letter-spacing="1">MEDIAN PHYSICS /s</text>
+<text x="1217" y="411" font-size="68" fill="#5eead4" font-weight="700" >12.31</text>
+<text x="1476" y="411" font-size="68" fill="#c4b5fd" font-weight="700" >24.63</text>
+<path d="M1220 435 H1718" stroke="#344158"/>
+<text x="1220" y="466" font-size="14" fill="#8999b3" font-weight="500" >SAMPLE</text>
+<text x="1387" y="466" font-size="14" fill="#8999b3" font-weight="500" text-anchor="end">FPS</text>
+<text x="1717" y="466" font-size="14" fill="#8999b3" font-weight="500" text-anchor="end">PHYSICS STEPS/s</text>
+<text x="1220" y="497" font-size="22" fill="#b9c5d8" font-weight="500" >01</text>
+<text x="1387" y="497" font-size="22" fill="#dde6f4" font-weight="500" text-anchor="end">12.31</text>
+<text x="1717" y="497" font-size="22" fill="#dde6f4" font-weight="500" text-anchor="end">24.63</text>
+<text x="1220" y="528" font-size="22" fill="#b9c5d8" font-weight="500" >02</text>
+<text x="1387" y="528" font-size="22" fill="#dde6f4" font-weight="500" text-anchor="end">12.43</text>
+<text x="1717" y="528" font-size="22" fill="#dde6f4" font-weight="500" text-anchor="end">24.86</text>
+<text x="1220" y="559" font-size="22" fill="#b9c5d8" font-weight="500" >03</text>
+<text x="1387" y="559" font-size="22" fill="#dde6f4" font-weight="500" text-anchor="end">12.23</text>
+<text x="1717" y="559" font-size="22" fill="#dde6f4" font-weight="500" text-anchor="end">24.46</text>
+<text x="1220" y="605" font-size="18" fill="#a9bad2" font-weight="400" >Spread 1.63%</text>
+<text x="1717" y="605" font-size="18" fill="#a9bad2" font-weight="400" text-anchor="end">Repeatability 98.37%</text>
+<rect x="56" y="660" width="546" height="418" rx="16" fill="#1f1c30" stroke="#2c354c"/>
+<text x="80" y="704" font-size="27" fill="#f1f5f9" font-weight="600" >No KSPCF, KOE</text>
+<text x="80" y="742" font-size="22" fill="#a9bad2" font-weight="400" >No FAR</text>
+<text x="80" y="788" font-size="14" fill="#9aa8c2" font-weight="500" letter-spacing="1">MEDIAN FPS</text>
+<text x="339" y="788" font-size="14" fill="#9aa8c2" font-weight="500" letter-spacing="1">MEDIAN PHYSICS /s</text>
+<text x="77" y="855" font-size="68" fill="#5eead4" font-weight="700" >22.45</text>
+<text x="336" y="855" font-size="68" fill="#c4b5fd" font-weight="700" >43.29</text>
+<path d="M80 879 H578" stroke="#344158"/>
+<text x="80" y="910" font-size="14" fill="#8999b3" font-weight="500" >SAMPLE</text>
+<text x="247" y="910" font-size="14" fill="#8999b3" font-weight="500" text-anchor="end">FPS</text>
+<text x="577" y="910" font-size="14" fill="#8999b3" font-weight="500" text-anchor="end">PHYSICS STEPS/s</text>
+<text x="80" y="941" font-size="22" fill="#b9c5d8" font-weight="500" >01</text>
+<text x="247" y="941" font-size="22" fill="#dde6f4" font-weight="500" text-anchor="end">22.45</text>
+<text x="577" y="941" font-size="22" fill="#dde6f4" font-weight="500" text-anchor="end">43.29</text>
+<text x="80" y="972" font-size="22" fill="#b9c5d8" font-weight="500" >02</text>
+<text x="247" y="972" font-size="22" fill="#dde6f4" font-weight="500" text-anchor="end">21.64</text>
+<text x="577" y="972" font-size="22" fill="#dde6f4" font-weight="500" text-anchor="end">42.61</text>
+<text x="80" y="1003" font-size="22" fill="#b9c5d8" font-weight="500" >03</text>
+<text x="247" y="1003" font-size="22" fill="#dde6f4" font-weight="500" text-anchor="end">22.97</text>
+<text x="577" y="1003" font-size="22" fill="#dde6f4" font-weight="500" text-anchor="end">44.14</text>
+<text x="80" y="1049" font-size="18" fill="#a9bad2" font-weight="400" >Spread 4.74%</text>
+<text x="577" y="1049" font-size="18" fill="#a9bad2" font-weight="400" text-anchor="end">Repeatability 95.26%</text>
+<rect x="626" y="660" width="546" height="418" rx="16" fill="#1f1c30" stroke="#2c354c"/>
+<text x="650" y="704" font-size="27" fill="#f1f5f9" font-weight="600" >No KSPCF, KOE</text>
+<text x="650" y="742" font-size="22" fill="#a9bad2" font-weight="400" >FAR 0.16.1.2</text>
+<text x="650" y="788" font-size="14" fill="#9aa8c2" font-weight="500" letter-spacing="1">MEDIAN FPS</text>
+<text x="909" y="788" font-size="14" fill="#9aa8c2" font-weight="500" letter-spacing="1">MEDIAN PHYSICS /s</text>
+<text x="647" y="855" font-size="68" fill="#5eead4" font-weight="700" >20.07</text>
+<text x="906" y="855" font-size="68" fill="#c4b5fd" font-weight="700" >40.14</text>
+<path d="M650 879 H1148" stroke="#344158"/>
+<text x="650" y="910" font-size="14" fill="#8999b3" font-weight="500" >SAMPLE</text>
+<text x="817" y="910" font-size="14" fill="#8999b3" font-weight="500" text-anchor="end">FPS</text>
+<text x="1147" y="910" font-size="14" fill="#8999b3" font-weight="500" text-anchor="end">PHYSICS STEPS/s</text>
+<text x="650" y="941" font-size="22" fill="#b9c5d8" font-weight="500" >01</text>
+<text x="817" y="941" font-size="22" fill="#dde6f4" font-weight="500" text-anchor="end">20.09</text>
+<text x="1147" y="941" font-size="22" fill="#dde6f4" font-weight="500" text-anchor="end">40.18</text>
+<text x="650" y="972" font-size="22" fill="#b9c5d8" font-weight="500" >02</text>
+<text x="817" y="972" font-size="22" fill="#dde6f4" font-weight="500" text-anchor="end">19.79</text>
+<text x="1147" y="972" font-size="22" fill="#dde6f4" font-weight="500" text-anchor="end">39.32</text>
+<text x="650" y="1003" font-size="22" fill="#b9c5d8" font-weight="500" >03</text>
+<text x="817" y="1003" font-size="22" fill="#dde6f4" font-weight="500" text-anchor="end">20.07</text>
+<text x="1147" y="1003" font-size="22" fill="#dde6f4" font-weight="500" text-anchor="end">40.14</text>
+<text x="650" y="1049" font-size="18" fill="#a9bad2" font-weight="400" >Spread 1.82%</text>
+<text x="1147" y="1049" font-size="18" fill="#a9bad2" font-weight="400" text-anchor="end">Repeatability 98.18%</text>
+<rect x="1196" y="660" width="546" height="418" rx="16" fill="#172a2c" stroke="#4eaa9a"/>
+<text x="1220" y="704" font-size="27" fill="#f1f5f9" font-weight="600" >KSPCF, KOE</text>
+<text x="1220" y="742" font-size="22" fill="#a9bad2" font-weight="400" >FAR 0.16.2</text>
+<text x="1717" y="741" font-size="12" fill="#5eead4" font-weight="700" text-anchor="end" letter-spacing="1">BEST WITH FAR</text>
+<text x="1220" y="788" font-size="14" fill="#9aa8c2" font-weight="500" letter-spacing="1">MEDIAN FPS</text>
+<text x="1479" y="788" font-size="14" fill="#9aa8c2" font-weight="500" letter-spacing="1">MEDIAN PHYSICS /s</text>
+<text x="1217" y="855" font-size="68" fill="#5eead4" font-weight="700" >21.97</text>
+<text x="1476" y="855" font-size="68" fill="#c4b5fd" font-weight="700" >43.34</text>
+<path d="M1220 879 H1718" stroke="#344158"/>
+<text x="1220" y="910" font-size="14" fill="#8999b3" font-weight="500" >SAMPLE</text>
+<text x="1387" y="910" font-size="14" fill="#8999b3" font-weight="500" text-anchor="end">FPS</text>
+<text x="1717" y="910" font-size="14" fill="#8999b3" font-weight="500" text-anchor="end">PHYSICS STEPS/s</text>
+<text x="1220" y="941" font-size="22" fill="#b9c5d8" font-weight="500" >01</text>
+<text x="1387" y="941" font-size="22" fill="#dde6f4" font-weight="500" text-anchor="end">21.45</text>
+<text x="1717" y="941" font-size="22" fill="#dde6f4" font-weight="500" text-anchor="end">41.77</text>
+<text x="1220" y="972" font-size="22" fill="#b9c5d8" font-weight="500" >02</text>
+<text x="1387" y="972" font-size="22" fill="#dde6f4" font-weight="500" text-anchor="end">21.97</text>
+<text x="1717" y="972" font-size="22" fill="#dde6f4" font-weight="500" text-anchor="end">43.34</text>
+<text x="1220" y="1003" font-size="22" fill="#b9c5d8" font-weight="500" >03</text>
+<text x="1387" y="1003" font-size="22" fill="#dde6f4" font-weight="500" text-anchor="end">22.74</text>
+<text x="1717" y="1003" font-size="22" fill="#dde6f4" font-weight="500" text-anchor="end">43.89</text>
+<text x="1220" y="1049" font-size="18" fill="#a9bad2" font-weight="400" >Spread 5.38%</text>
+<text x="1717" y="1049" font-size="18" fill="#a9bad2" font-weight="400" text-anchor="end">Repeatability 94.62%</text>
+<rect x="56" y="1104" width="1686" height="140" rx="16" fill="#151f2f" stroke="#2a3a52"/>
+<text x="80" y="1139" font-size="15" fill="#9aa8c2" font-weight="600" letter-spacing="2">MEASURED OUTCOME</text>
+<text x="80" y="1177" font-size="14" fill="#9aa8c2" font-weight="500" >NO FAR</text>
+<text x="80" y="1214" font-size="24" fill="#5eead4" font-weight="650" >+79.5% FPS  /  +73.1% physics</text>
+<text x="638" y="1177" font-size="14" fill="#9aa8c2" font-weight="500" >FAR 0.16.1.2</text>
+<text x="638" y="1214" font-size="24" fill="#5eead4" font-weight="650" >+67.5% FPS  /  +67.5% physics</text>
+<text x="1196" y="1177" font-size="14" fill="#9aa8c2" font-weight="500" >FAR 0.16.2</text>
+<text x="1196" y="1214" font-size="24" fill="#5eead4" font-weight="650" >+78.4% FPS  /  +76.0% physics</text>
+<path d="M56 1273 H1742" stroke="#29324a"/>
+<text x="57" y="1306" font-size="13" fill="#9aa8c2" font-weight="600" letter-spacing="2">TEST SYSTEM</text>
+<text x="57" y="1344" font-size="23" fill="#dde6f4" font-weight="500" >Intel Core i5-14600K  ·  64 GB DDR4  ·  NVIDIA GeForce RTX 4060</text>
+<text x="57" y="1380" font-size="20" fill="#a9bad2" font-weight="400" >Samsung SSD 980 1TB  ·  Windows 10 Pro (19045)</text>
+</g></svg>
