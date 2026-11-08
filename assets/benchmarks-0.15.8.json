@@ -1,92 +1,209 @@
 {
   "version": "0.15.8",
-  "comparison": "Historical no-KOE reference (2026-11-05) versus retained accepted full cycle (2026-11-08)",
-  "matched_pair": false,
-  "frame_generation": false,
-  "baseline_source": "Published 0.15.3 comparison; KSPCommunityFixes enabled, all KOE performance modules absent",
-  "precision": "Reference values are published rounded values; current values retain telemetry precision; percentages are approximate",
-  "hardware": "Intel Core i5-14600K, 64 GiB RAM, RTX 4060 8 GiB, 2560x1440, D3D11, NVIDIA 621.01",
-  "craft": "01KOE, 353 craft-file parts / 345 flight parts",
-  "loading_seconds": {
-    "main_menu": [
-      55.12,
-      49.892366
-    ],
-    "save": [
-      3.24,
-      3.104765
-    ],
-    "vab": [
-      3.06,
-      3.016442
-    ],
-    "flight": [
-      13.07,
-      11.368598
-    ],
-    "total": [
-      74.49,
-      67.38217
-    ]
-  },
-  "base_fps": {
-    "ksc": [
-      28.55,
-      44.29138222576033
-    ],
-    "launchpad_idle": [
-      20.86,
-      35.494943344843136
-    ],
-    "powered_flight": [
-      12.38,
-      21.69507026669856
-    ],
-    "after_fuel": [
-      18.4,
-      24.974312421216034
-    ]
-  },
-  "physics_updates_per_second": {
-    "ksc": [
-      48.74,
-      49.99027339250602
-    ],
-    "launchpad_idle": [
-      41.17,
-      49.91212935901933
-    ],
-    "powered_flight": [
-      24.77,
-      41.88785133504547
-    ],
-    "after_fuel": [
-      36.4,
-      48.05057709841965
-    ]
-  },
-  "portrait_fps": {
-    "powered_flight": [
-      3.09,
-      21.69507026669856
-    ]
-  },
-  "current_portrait_basis": "Visible portraits follow base rendered FPS; current value derived from the powered-flight renderer rate, not a separate portrait counter",
-  "space_fps_basis": "Uses the existing after-fuel mixed-altitude window as a proxy; no isolated space-only FPS was recorded",
-  "limits": [
-    "Different capture dates, cache states and observation windows; not a matched A/B",
-    "The historical reference rebuilt the part cache; the current run did not clear part, application or OS caches",
-    "Loading excludes scripted observation holds and actual flight; totals use unrounded measurements",
-    "Powered flight includes ignition stalls; launchpad idle ends before ignition",
-    "The latest full run did not separately remeasure portrait FPS",
-    "A no-KOE reference for the ActivateNextStage call has not been verified; no activation improvement or regression percentage is claimed",
-    "This full cycle predates packaging; source state and enabled features are tracked separately from release artifacts"
+  "new_runs": 2,
+  "order": [
+    "without-koe",
+    "with-koe"
   ],
-  "launch_activation_ms": {
-    "without_koe": null,
-    "current": 159.1791,
-    "change_percent": null,
-    "comparison": "KOE-only measurement; no-KOE activation reference pending verification",
-    "scope": "ActivateNextStage call, not the entire first-frame stall"
-  }
+  "frame_generation": false,
+  "package_sha256": "732860572ef6d0199c2068d2f24b87a8dc94878b3ef0cad0b5bea71d44bc0821",
+  "telemetry_sha256": "5b49eebfc4fc5d3e6d97b2db318905ade71daab30b3392c0d10cd626e138e20a",
+  "cache": "ModuleManager cache and PartDatabase rebuilt in both processes; other existing mod/application caches retained; OS cache not cleared. Fixed no-KOE then KOE order.",
+  "before": {
+    "without_koe": true,
+    "source": "banner-0158-without-koe",
+    "loading_seconds": {
+      "startup": 54.329461,
+      "save": 3.167527,
+      "editor": 2.983819,
+      "flight": 12.970452,
+      "total": 73.45126
+    },
+    "stages": {
+      "KSC": {
+        "fps": 30.408851595960723,
+        "physics_hz": 49.850576386820855,
+        "p99_ms": 41.5602,
+        "focused_pct": 100.0,
+        "seconds": 10.0299743,
+        "frames": 305,
+        "portrait_fps": 0.0,
+        "portrait_renders": 0
+      },
+      "Launch pad": {
+        "fps": 21.80331628947817,
+        "physics_hz": 42.76154280029439,
+        "p99_ms": 59.7563,
+        "focused_pct": 100.0,
+        "seconds": 11.8330623,
+        "frames": 258,
+        "portrait_fps": 5.493083561302639,
+        "portrait_renders": 65
+      },
+      "Powered flight": {
+        "fps": 12.787098365444454,
+        "physics_hz": 25.574196730888907,
+        "p99_ms": 115.6871,
+        "focused_pct": 100.0,
+        "seconds": 194.4147084,
+        "frames": 2486,
+        "portrait_fps": 3.1942027694855213,
+        "portrait_renders": 621
+      },
+      "After fuel": {
+        "fps": 20.579104183403217,
+        "physics_hz": 40.558816982823814,
+        "p99_ms": 62.88,
+        "focused_pct": 100.0,
+        "seconds": 10.010153899999999,
+        "frames": 206,
+        "portrait_fps": 5.194725327849356,
+        "portrait_renders": 52
+      }
+    },
+    "activation_ms": 186.0074,
+    "launch_max_frame_ms": 307.1107,
+    "controller_sha256": "250906d38d1d71288acdba8a65162691ded4e94c5e2a0765e0f8188ef98790ea",
+    "environment": {
+      "driver": "32.0.16.2101",
+      "backend": "Direct3D11",
+      "logicalCPUs": "20",
+      "frameGeneration": "off"
+    },
+    "measured_exceptions": {
+      "exception_windows_checked": true,
+      "measurement_exceptions": 0
+    },
+    "package_before": {},
+    "fuel_end_simulation_seconds": 99.44,
+    "process_seconds": 352.362314,
+    "max_pitch_error_degrees": 0.762
+  },
+  "after": {
+    "without_koe": false,
+    "source": "banner-0158-with-koe",
+    "loading_seconds": {
+      "startup": 50.082007,
+      "save": 3.220946,
+      "editor": 3.019799,
+      "flight": 11.123043,
+      "total": 67.445794
+    },
+    "stages": {
+      "KSC": {
+        "fps": 43.70066710872497,
+        "physics_hz": 50.01521304416001,
+        "p99_ms": 29.0738,
+        "focused_pct": 100.0,
+        "seconds": 9.9769644,
+        "frames": 436,
+        "portrait_fps": 0.0,
+        "portrait_renders": 0
+      },
+      "Launch pad": {
+        "fps": 33.38682099278104,
+        "physics_hz": 48.770115728695345,
+        "p99_ms": 65.7671,
+        "focused_pct": 100.0,
+        "seconds": 11.8310156,
+        "frames": 395,
+        "portrait_fps": 33.38682099278104,
+        "portrait_renders": 395
+      },
+      "Powered flight": {
+        "fps": 21.69812755648169,
+        "physics_hz": 41.96439897979454,
+        "p99_ms": 68.9166,
+        "focused_pct": 100.0,
+        "seconds": 118.0286176,
+        "frames": 2561,
+        "portrait_fps": 21.69812755648169,
+        "portrait_renders": 2561
+      },
+      "After fuel": {
+        "fps": 24.083223626421834,
+        "physics_hz": 46.367700259998884,
+        "p99_ms": 58.1554,
+        "focused_pct": 100.0,
+        "seconds": 10.006966,
+        "frames": 241,
+        "portrait_fps": 24.083223626421834,
+        "portrait_renders": 241
+      }
+    },
+    "activation_ms": 169.4593,
+    "launch_max_frame_ms": 320.7188,
+    "controller_sha256": "250906d38d1d71288acdba8a65162691ded4e94c5e2a0765e0f8188ef98790ea",
+    "environment": {
+      "driver": "32.0.16.2101",
+      "backend": "Direct3D11",
+      "logicalCPUs": "20",
+      "frameGeneration": "off"
+    },
+    "measured_exceptions": {
+      "exception_windows_checked": true,
+      "measurement_exceptions": 0
+    },
+    "package_before": {
+      "GameData/KerbalOverEngineering/LICENSE": "bbf5d5c51a4531be9802306ecb48f79225c5c1df5f4f8f227ef6ab37fb125f32",
+      "GameData/KerbalOverEngineering/LICENSES.md": "a85948e7f19f6997618ec24694e55b41570f4f085a96626731a24e0a1a9f401e",
+      "GameData/KerbalOverEngineering/Options.cfg": "6b9f5f0543ace949264dce660cff63c57b7469f8600533533f3c8e4e7b6f731d",
+      "GameData/KerbalOverEngineering/licenses/Deferred-GPL-3.0.txt": "a3c760ecd01f3c41af9ed3a3c13743f1c3b367ca600c84f683f046fbc75b891f",
+      "GameData/KerbalOverEngineering/licenses/EVE-public-code-MIT.txt": "c1e253310b79580e3304e724f5686e9635bf09c1d3f32d00f3804d607ec80c0e",
+      "GameData/KerbalOverEngineering/licenses/MinHook-LICENSE.txt": "4f21f857550d7be854da6ea5f2da4e6775ca4e3fbb535e4f3d961c47d0bf3335",
+      "GameData/KerbalOverEngineering/licenses/NOTICES.txt": "0c710d3b927da8b957bb2cecdbef8845732fe5d00f7c762d366a72e70db3246b",
+      "GameData/KerbalOverEngineering/licenses/NVIDIA-Optical-Flow-Headers-MIT.txt": "3bf9e7a77f82462ad54707b4e4289b93f819478aada1003ce5f9d35d4b45c9ba",
+      "GameData/KerbalOverEngineering/licenses/ReShade-API.txt": "4e65e209fd00280fab8360c9abe5add00c1c650a3f27f657a3d53cf5eca24069",
+      "GameData/KerbalOverEngineering/licenses/Rust-MIT.txt": "439caf77f3522078d9227ff15723c7d251430c6d9a57bf79e00f97ce3d0580f9",
+      "GameData/KerbalOverEngineering/Plugins/KerbalOverEngineering.Options.dll": "1926a8caf53e3ba0e6954c904c507bc68406c24b09e3f3b5c6651145697c1392",
+      "GameData/KerbalOverEngineering/stock/StageDeltaVFix/Plugins/KoeStageDeltaVFix.dll": "c27e81a9495a97162156398cc6234503d43a38d8d9025d161d5ca99a1b54c254",
+      "GameData/KerbalOverEngineering/stock/ShadowDrawBatching/Plugins/KoeShadowDrawBatching.dll": "a88c9877f775acb630a3eca578dc5e1600864c91845721738a8b629d951d1a04",
+      "GameData/KerbalOverEngineering/stock/ShaderConstantUpdates/Plugins/KoeShaderConstantUpdates.dll": "5fb79112f9d1a091066e51e581bb4d2aa35e263481b4e5f117af45af38df7952",
+      "GameData/KerbalOverEngineering/stock/RustShaderSubmission/Plugins/KoeRustShaderSubmission.dll": "69a38dbd85b1fb6a1077a75f1b6d3fec272332392db0407f6c7c650f8af660ea",
+      "GameData/KerbalOverEngineering/stock/PropellantRequestFix/Plugins/PropellantRequestFix.dll": "db4fd524c2b252f5c6c59c3b4fe35646dfdb165bdc077f736369879456de72fc",
+      "GameData/KerbalOverEngineering/stock/PqsNoiseFix/Plugins/PqsNoiseFix.dll": "d963d550c18b6badbf204655129979554d645d0b4abc0f9efd6d4b3bcce5ecf8",
+      "GameData/KerbalOverEngineering/stock/PortraitFrameFix/Plugins/PortraitFrameFix.dll": "9eb76ac8004e1ca0f08bc22ee5d65a9f443621ed5a2921a1d0bdcba6439050f5",
+      "GameData/KerbalOverEngineering/stock/PngPipelineFix/Plugins/PngPipelineFix.dll": "4a4670b05f3ea1864f43bf0558ae42cc24240d6fd8a1a4483d69697d4cffecbd",
+      "GameData/KerbalOverEngineering/stock/PlanetLaunchReadinessFix/Plugins/KoePlanetLaunchReadiness.dll": "f793117d379d2f369085059304a6bbd991fe91631a9ae2c1a902c5e431a1072d",
+      "GameData/KerbalOverEngineering/stock/OverlayCameraFix/Plugins/KoeOverlayLifetime.dll": "7e8c29f0f838c7c6ac05ed83396727e78782bde51ba6ae2e8846ba1b1d666aea",
+      "GameData/KerbalOverEngineering/stock/NativeTextureFix/Plugins/NativeTextureFix.dll": "b60897907fc4cf97d82cca0d7880bbaf18a7e2b001277b02b00604735a30cc32",
+      "GameData/KerbalOverEngineering/stock/LoadingScreenFix/Plugins/LoadingScreenFix.dll": "d88df61748660b3575ce01dbb7daa672155c5c3ef6053433f9ee557d599b1195",
+      "GameData/KerbalOverEngineering/stock/InstancedPointLights/Plugins/KoeInstancedPointLights.dll": "dd8f71b0d04faf2b01a88028871af0e09c7c7393fc66ec87eca4aca4d7f4f5ae",
+      "GameData/KerbalOverEngineering/stock/FrameGeneration/Plugins/KoeFrameGenerationBridge.dll": "4ef89873504e90aeb18ec524eea67710cdc0b9343438af39a5694bf2fa6f2693",
+      "GameData/KerbalOverEngineering/stock/FlightUiLifetimeFix/Plugins/KoeFlightUiLifetime.dll": "1b79da4c4965ce4b53f37f38e0382a1fe8bec4e73ae3e9814210678494bf1e05",
+      "GameData/KerbalOverEngineering/stock/ExpansionBufferFix/Plugins/ExpansionBufferFix.dll": "561896b8076e9b9fcc0ac83a0119b5801246701e6451fa1fd431b3bd065b9240",
+      "GameData/KerbalOverEngineering/stock/ExhaustSyncFix/Plugins/ExhaustSyncFix.dll": "9067625cc200d83ca48cf0e290b18ef57e7b2643f7012a7cc062166f4373631f",
+      "GameData/KerbalOverEngineering/stock/EventPathFix/Plugins/KoeEventPathFix.dll": "d6dca010f67de39265e6e5fa2f01c364ac0afdb443720fed22f8e48e12c4fedc",
+      "GameData/KerbalOverEngineering/stock/DlcCacheFix/Plugins/DlcCacheFix.dll": "75f73797630a3cc55236b32f531737c4a08adab9be65e834372e268d410133bb",
+      "GameData/KerbalOverEngineering/stock/DeltaVReadBatchFix/Plugins/KoeDeltaVReadBatchFix.dll": "f1bdd6fb24ccdad120b5747e5258a48a913f0ca75f42f969d1d76203b69b2fb6",
+      "GameData/KerbalOverEngineering/stock/DdsUploadFix/Plugins/DdsUploadFix.dll": "7e18603f1527a5256c7eb01086bfb2329cf5b62a61b939cfbaee4f46748ba150",
+      "GameData/KerbalOverEngineering/stock/DatabaseSchedulerFix/Plugins/DatabaseSchedulerFix.dll": "80fde2b372c25fa18b47731fa3883e42092ef6bfbebd1c30476cdf3c37943240",
+      "GameData/KerbalOverEngineering/stock/CraftLinkFix/Plugins/CraftLinkFix.dll": "990cd162be43a28a21d6ad474dd23195bc2e00fd3391862bbc56519b9e9e2f2d",
+      "GameData/KerbalOverEngineering/mod/Waterfall/RendererIndexFix/Plugins/KoeWaterfallRendererIndex.dll": "ca9d79e3f709a30fbc0b44919549992ed72624168b69b95b91a14a5a83719e60",
+      "GameData/KerbalOverEngineering/mod/Scatterer/ShadowCopyLifetimeFix/Plugins/KoeScattererShadowLifetime.dll": "ca73f063775b8a77841dbf607286ce83221a160edc7495c8a0b5d161dcb1bfce",
+      "GameData/KerbalOverEngineering/mod/Scatterer/ScreenCopyFix/Plugins/KoeScattererScreenCopy.dll": "67ed9a139df6b89ad55e0e9121dcb9d97d9d26d6b8516bf16361adf98f478c6d",
+      "GameData/KerbalOverEngineering/mod/ParallaxContinued/MenuSkyboxFix/Plugins/MenuSkyboxFix.dll": "3d49b4b3e8e9ae707ac37d85b6c528bcefa267294cc518131eef808be4e4362e",
+      "GameData/KerbalOverEngineering/mod/KSPCommunityFixes/EarlyDlcCacheFix/Plugins/KoeCfDlcCache.dll": "84b1d74dfe67ea968bc351103103a3686b0c4c52113373ac617e161f40bbaeb4",
+      "GameData/KerbalOverEngineering/mod/KSPCommunityFixes/DragReductionFix/Plugins/KoeDragReduction.dll": "7d22dbee077665dac8dd1c6afe4421c3ddf894fa0f241f9ecaf23be83e98dea7",
+      "GameData/KerbalOverEngineering/mod/KSPCommunityFixes/CollisionStateFix/Plugins/KoeCollisionStateFix.dll": "34fb3a1e8f693269b6ae16f72121a46429455acff370aa57f981cf5ee8966f36",
+      "GameData/KerbalOverEngineering/mod/FreeIva/RefreshFix/Plugins/KoeFreeIvaRefresh.dll": "906a917001f8385b68ad166822cf922d97db3cf457a11a1d9fbebab2e38d7f0a",
+      "GameData/KerbalOverEngineering/mod/Firefly/IdleFix/Plugins/FireflyIdleFix.dll": "858619c2aeb37f211a3d327f924c775595be415a2f381275d7e65af593b2135a",
+      "GameData/KerbalOverEngineering/mod/FerramAerospaceResearch/EventPathFix/Plugins/KoeFarEventPath.dll": "37b9cefb51b4d8fea6d9cbe0c22b2ed64ac36da362d6a3790ed264251c8cd901",
+      "GameData/KerbalOverEngineering/mod/EnvironmentalVisualEnhancements/ShaderCorrectionGuards/Plugins/KoeCloudGuards.dll": "b11af495a4431562fab2892fe71c8b51ebc11f491045e30a45d4d88a886ec034",
+      "GameData/KerbalOverEngineering/mod/EnvironmentalVisualEnhancements/CurveBakeFix/Plugins/EveCurveBakeFix.dll": "d576807c2a050dc66f0460a9d54bb75253126d6d7baade1d3aeec8517cac3b06",
+      "GameData/KerbalOverEngineering/mod/EnvironmentalVisualEnhancements/CloudLoopFix/Plugins/CloudLoopFix.dll": "62dc15f401e7a5c17bfd1f95d0d868440e4faacdc5723fddb3d8c7076aa973aa",
+      "GameData/KerbalOverEngineering/mod/Deferred/SsrLifetimeFix/Plugins/KoeSsrLifetime.dll": "5e0cc91c75c91e249de2f2483bfed6edab662ccaaca72f6529ad61a0846a5298",
+      "GameData/KerbalOverEngineering/mod/CameraTools/ToolbarLifetimeFix/Plugins/KoeCameraToolsLifetime.dll": "f885756625ff5a69d42ea4a8e653b58502f9166e9c16b6a00a7e8d4a112c82d5"
+    },
+    "fuel_end_simulation_seconds": 99.06,
+    "process_seconds": 269.852357,
+    "max_pitch_error_degrees": 0.764
+  },
+  "limits": [
+    "One fresh run per variant, fixed order; no repeatability or causal-confidence estimate.",
+    "All banner numbers come from this pair; no earlier run is used as a measurement baseline.",
+    "Loading sums active stages, excluding scripted observation holds; full process duration is reported separately.",
+    "Space FPS is the post-fuel interval, not an isolated deep-space measurement.",
+    "Portrait FPS counts actual pilotCamera_01 post-render callbacks over the powered-flight interval."
+  ]
 }

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/readme-hero-0.15.8-eight-r3.svg" alt="KerbalOverEngineering 0.15.8 — eight retained full-cycle performance metrics" width="100%">
+  <img src="assets/readme-hero-0.15.8-eight-fresh.svg" alt="KerbalOverEngineering 0.15.8 — eight metrics from the new no-KOE / KOE full-cycle pair" width="100%">
 </p>
 
 <p align="center">
@@ -73,22 +73,33 @@ The automatic material-instancing experiment was removed: the tested Deferred bu
 
 ## Measured performance
 
-### Current accepted configuration
+### New full-cycle comparison (0.15.8)
 
-The first banner uses the retained November 8 full cycle with the accepted features enabled, compared with the historical November 5 no-KOE reference. It is not a new matched A/B or a cold-start claim. Frame generation is off; the craft has 353 parts in the editor and 345 in flight.
+One new complete run without any KOE performance modules, then one with the published 0.15.8 package. KSPCF, FAR and the other mods remain installed in both. Same craft, settings, controller and v4 flight schedule; 353 parts in VAB and 345 in flight. Frame generation is off. Every number in the first banner comes from this pair.
 
-| Metric | Historical no KOE | Accepted configuration |
+| Loading stage | No KOE | KOE 0.15.8 |
 |---|---:|---:|
-| Active loading total | 74.49 s | 67.38 s |
-| KSC FPS | 28.55 | 44.29 |
-| Launchpad FPS | 20.86 | 35.49 |
-| Full powered-flight FPS | 12.38 | 21.70 |
-| After-fuel FPS | 18.40 | 24.97 |
-| Powered-flight physics/s | 24.77 | 41.89 |
+| Main menu | 54.33 s | 50.08 s |
+| Save entry | 3.17 s | 3.22 s |
+| VAB | 2.98 s | 3.02 s |
+| Flight entry | 12.97 s | 11.12 s |
+| **Total** | 73.45 s | 67.45 s |
 
-Visible portrait FPS is derived from the base flight rate, 21.70 FPS; it was not independently remeasured. The launch card shows **159.18 ms with KOE** for the `ActivateNextStage` call. A no-KOE reference for this specific call has not been verified, so no improvement or regression percentage is claimed. The space card remains a post-fuel proxy. [Full-cycle banner data](assets/benchmarks-0.15.8.json).
+| Stage | FPS: no KOE | FPS: KOE | Physics/s: no KOE | Physics/s: KOE |
+|---|---:|---:|---:|---:|
+| KSC | 30.41 | 43.70 | 49.85 | 50.02 |
+| Launch pad | 21.80 | 33.39 | 42.76 | 48.77 |
+| Powered flight | 12.79 | 21.70 | 25.57 | 41.96 |
+| After fuel | 20.58 | 24.08 | 40.56 | 46.37 |
 
-The newest three-sample middle-flight check of the accepted configuration measured **21.25 FPS / 41.51 physics steps/s**; after fuel, **23.96 FPS / 47.11 physics steps/s**. These short windows and the full-flight averages cover different intervals. The NormalizeRsq candidate provided no measured benefit and is excluded.
+| Additional metric | No KOE | KOE 0.15.8 |
+|---|---:|---:|
+| Portrait FPS during powered flight | 3.19 | 21.70 |
+| Stage activation (`ActivateNextStage`) | 186.01 ms | 169.46 ms |
+
+Portrait FPS is measured from actual `pilotCamera_01` render callbacks, independently of base FPS. Stage activation measures the same synchronous call in both processes; it is not the longest frame or time to load the craft. The post-fuel card covers that flight interval, not a separate deep-space scenario.
+
+ModuleManager caches and PartDatabase were rebuilt for both runs; other existing application/mod caches were retained. OS cache was not cleared. Loading totals exclude scripted observation holds and flight time. This is one fixed-order pair, not a repeated benchmark or a fully cold-disk test. Old comparison cards and the release-history chart below remain historical measurements. [New pair data](assets/benchmarks-0.15.8.json).
 
 ### Retained 0.15.7 flight samples
 
