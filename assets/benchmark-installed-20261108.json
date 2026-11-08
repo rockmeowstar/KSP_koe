@@ -1,5 +1,12 @@
 {
   "description": "One installed test-build run; binary set differs from 0.16.0 release archive; frame generation off.",
+  "latest_loading_recheck": {
+    "source": "loading-recheck-0160-20261108",
+    "process_start_to_main_menu_seconds": 48.461967,
+    "save_entry_seconds": 3.143703,
+    "historical_no_koe_main_menu_seconds": 54.329461,
+    "scope": "Main menu and save entry only; full-flight loading_seconds below retained unchanged."
+  },
   "loading_seconds": {
     "startup": 59.676221,
     "save": 3.642787,
