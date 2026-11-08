@@ -34,5 +34,58 @@
       "seconds": 9.9602461
     }
   },
-  "source": "D:\\CATS\\KerbalOverEngineering\\artifacts\\flight-core-20261108\\current-0160-full-20261108"
+  "source": "D:\\CATS\\KerbalOverEngineering\\artifacts\\flight-core-20261108\\current-0160-full-20261108",
+  "historical_no_koe_reference": {
+    "source": "banner-0158-without-koe",
+    "loading_seconds": {
+      "startup": 54.329461,
+      "save": 3.167527,
+      "editor": 2.983819,
+      "flight": 12.970452,
+      "total": 73.45126
+    },
+    "activation_ms": 186.0074,
+    "stages": {
+      "KSC": {
+        "fps": 30.408851595960723,
+        "physics_hz": 49.850576386820855,
+        "p99_ms": 41.5602,
+        "focused_pct": 100.0,
+        "seconds": 10.0299743,
+        "frames": 305,
+        "portrait_fps": 0.0,
+        "portrait_renders": 0
+      },
+      "Launch pad": {
+        "fps": 21.80331628947817,
+        "physics_hz": 42.76154280029439,
+        "p99_ms": 59.7563,
+        "focused_pct": 100.0,
+        "seconds": 11.8330623,
+        "frames": 258,
+        "portrait_fps": 5.493083561302639,
+        "portrait_renders": 65
+      },
+      "Powered flight": {
+        "fps": 12.787098365444454,
+        "physics_hz": 25.574196730888907,
+        "p99_ms": 115.6871,
+        "focused_pct": 100.0,
+        "seconds": 194.4147084,
+        "frames": 2486,
+        "portrait_fps": 3.1942027694855213,
+        "portrait_renders": 621
+      },
+      "After fuel": {
+        "fps": 20.579104183403217,
+        "physics_hz": 40.558816982823814,
+        "p99_ms": 62.88,
+        "focused_pct": 100.0,
+        "seconds": 10.010153899999999,
+        "frames": 206,
+        "portrait_fps": 5.194725327849356,
+        "portrait_renders": 52
+      }
+    }
+  }
 }
