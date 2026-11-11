@@ -17,6 +17,7 @@ namespace KerbalOverEngineering.Options
         Vector2 scroll;
         readonly Dictionary<string, bool> values = new Dictionary<string, bool>(StringComparer.Ordinal);
         readonly Dictionary<string, bool> loadedValues = new Dictionary<string, bool>(StringComparer.Ordinal);
+        Dictionary<string, string> versionNotices = new Dictionary<string, string>(StringComparer.Ordinal);
         byte[] loadedFile;
         string selected = "Stock", error = "";
         bool visible, dirty;
@@ -36,10 +37,19 @@ namespace KerbalOverEngineering.Options
             if (button != null || ApplicationLauncher.Instance == null) return;
             icon = MakeIcon();
             button = ApplicationLauncher.Instance.AddModApplication(
-                () => { Load(); dirty = false; error = ""; visible = true; }, () => visible = false, null, null, null, null,
+                Open, () => visible = false, null, null, null, null,
                 ApplicationLauncher.AppScenes.SPACECENTER | ApplicationLauncher.AppScenes.FLIGHT |
                 ApplicationLauncher.AppScenes.VAB | ApplicationLauncher.AppScenes.SPH,
                 icon);
+        }
+
+        void Open()
+        {
+            Load();
+            versionNotices = ModVersionNotices.Collect();
+            dirty = false;
+            error = "";
+            visible = true;
         }
 
         void RemoveButton()
@@ -172,6 +182,9 @@ namespace KerbalOverEngineering.Options
                 if (GUILayout.Toggle(selected == group, group, GUI.skin.button)) selected = group;
             GUILayout.EndVertical();
             scroll = GUILayout.BeginScrollView(scroll);
+            string versionNotice;
+            if (versionNotices.TryGetValue(selected, out versionNotice))
+                GUILayout.Label(versionNotice, new GUIStyle(GUI.skin.label) { wordWrap = true });
             foreach (Feature feature in Catalog.Features.Where(f => f.Group == selected))
             {
                 bool previous = values[feature.Key];
@@ -181,6 +194,12 @@ namespace KerbalOverEngineering.Options
                 bool current = GUILayout.Toggle(previous, feature.Name + status);
                 if (current != previous) { values[feature.Key] = current; dirty = true; }
                 if (feature.Parent != null) GUILayout.Label("Requires " + feature.Parent);
+                if (feature.Key == "Stock.RealtimePhysicsCatchup")
+                    GUILayout.Label("Adapts the catch-up budget to keep physics close to real time while preserving the stock physics step. Real-time speed depends on available CPU time.",
+                        new GUIStyle(GUI.skin.label) { wordWrap = true });
+                if (feature.Key == "Stock.PhysicsWarpPrecision")
+                    GUILayout.Label("Experimental. Uses the 1x physics step and clock, with tick-based SAS, thermal integration, autopilot and FAR voxel publication. Requires restart. Higher CPU cost; geometry changes can pause physics.",
+                        new GUIStyle(GUI.skin.label) { wordWrap = true });
             }
             GUILayout.EndScrollView();
             GUILayout.EndHorizontal();

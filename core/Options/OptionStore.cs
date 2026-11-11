@@ -64,6 +64,8 @@ namespace KerbalOverEngineering.Options
             F("Stock", "PortraitHiddenCull", "Harmony"),
             F("Stock", "StageListReuse", "Harmony"),
             F("Stock", "DeltaVResetIndex", "Harmony"),
+            F("Stock", "RealtimePhysicsCatchup", "Harmony"),
+            F("Stock", "PhysicsWarpPrecision", "Harmony", "Stock.RealtimePhysicsCatchup"),
             F("Stock", "EvaTriggerListReuse", "Harmony"),
             F("Stock", "PropellantGaugeLookup", "Harmony"),
             F("FAR", "RendererInitDispatch", "FAR"),

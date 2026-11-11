@@ -1,4 +1,4 @@
-param([string]$GamePath = $env:KSP_ROOT,[string]$ReleaseVersion = '0.15.8')
+param([string]$GamePath = $env:KSP_ROOT,[string]$ReleaseVersion = '0.16.1')
 $ErrorActionPreference = 'Stop'
 if ($ReleaseVersion -notmatch '^\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?$') {
     throw 'Invalid release version'
@@ -35,6 +35,13 @@ $compilerReferences += "/reference:$GamePath\GameData\FireflyAPI\Plugins\Firefly
 # Each payload is resolved only after its options/dependencies pass. Canonical wrapper
 # paths overwrite previous module DLLs on an ordinary GameData copy/upgrade.
 $modules = @(
+    @{
+        Path = 'stock/PhysicsWarpPrecisionFix'
+        Name = 'KoePhysicsWarpPrecision'
+        Keys = 'Stock.PhysicsWarpPrecision'
+        Types = 'KoePhysicsWarpPrecision.Bootstrap'
+        SharedSources = @('mod/FAR/PhysicsPrecisionFix/PhysicsPrecisionFix.cs')
+    },
     @{
         Path = 'stock/ExhaustSyncFix'
         Name = 'ExhaustSyncFix'

@@ -19,9 +19,9 @@ static class OptionStoreTests
         try
         {
             Check(
-                Catalog.Features.Length == 73
-                && Catalog.Features.Select(f => f.Key).Distinct().Count() == 73,
-                "The option catalog must contain 73 distinct feature keys."
+                Catalog.Features.Length == 75
+                && Catalog.Features.Select(f => f.Key).Distinct().Count() == 75,
+                "The option catalog must contain 75 distinct feature keys."
             );
             var first = new OptionStore(path, f => f.Group == "EVE" ? "EVE missing" : null);
             Check(first.Enabled("Rendering.ShaderConstantUpdates"), "Supported shader constants enabled on first config creation");
@@ -35,6 +35,8 @@ static class OptionStoreTests
             Check(!first.Enabled("EVE.CloudMapPacking") && !Catalog.Features.First(f => f.Key == "EVE.CloudMapPacking").DefaultEnabled,
                 "Cloud map packing remains opt-in");
             Check(first.Enabled("Stock.DeltaVResetIndex"), "Accepted delta-V reset index defaults on when supported");
+            Check(first.Enabled("Stock.RealtimePhysicsCatchup"), "Accepted real-time physics catch-up defaults on");
+            Check(first.Enabled("Stock.PhysicsWarpPrecision"), "Physical warp precision defaults on when catch-up is supported");
             Check(!Catalog.Features.Any(f => f.Key == "Stock.AxisGroupParallel" || f.Key == "KSPCommunityFixes.RendererTreeBatch"), "Unaccepted parallel experiments are absent from the release catalog");
             Check(first.Enabled("FAR.ExposurePoolReset") && first.Enabled("Stock.OverlayCameraCleanup") && first.Enabled("Deferred.SsrResourceCleanup"), "Supported lifetime corrections default on");
             Check(first.Enabled("CameraTools.ToolbarLifetime"), "Supported toolbar ownership correction defaults on");
@@ -78,6 +80,12 @@ static class OptionStoreTests
             var unsupportedNative = new OptionStore(path, f => f.Requirement == "FarNative" ? "Unsupported native binding" : null);
             Check(!unsupportedNative.Enabled("FAR.RustRendererFilter") && !unsupportedNative.Enabled("FAR.RustRendererSetup"), "Unsupported FAR bindings retain their original path");
             string original = File.ReadAllText(path);
+            File.WriteAllText(path, original.Replace("RealtimePhysicsCatchup = true", "RealtimePhysicsCatchup = false"));
+            Check(!new OptionStore(path, f => null).Enabled("Stock.RealtimePhysicsCatchup"), "Preserve a manually disabled catch-up option");
+            Check(!new OptionStore(path, f => null).Enabled("Stock.PhysicsWarpPrecision"), "Warp precision requires its catch-up parent");
+            File.WriteAllText(path, original.Replace("RealtimePhysicsCatchup = true", ""));
+            Check(!new OptionStore(path, f => null).Enabled("Stock.RealtimePhysicsCatchup"), "Existing configurations require an explicit catch-up flag");
+            File.WriteAllText(path, original);
             string legacy = original.Replace("CloudMapPacking = false", "");
             File.WriteAllText(path, legacy);
             Check(!new OptionStore(path, f => null).Enabled("EVE.CloudMapPacking"), "An existing config needs an explicit new map-packing flag");

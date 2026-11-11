@@ -123,7 +123,7 @@ namespace KerbalOverEngineering.Options
 
             string CheckFeature(Feature feature)
             {
-                string problem = AssemblyProblem("Assembly-CSharp", "4b449f28-41f8-4227-adfa-ad3149c8fdba");
+                string problem = AssemblyProblem("Assembly-CSharp");
                 if (problem != null)
                     return problem;
                 problem = AssemblyProblem("0Harmony");

@@ -11,22 +11,29 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/rockmeowstar/ksp_koe/releases/tag/0.16.0"><img src="https://img.shields.io/badge/release-0.16.0-8b5cf6?style=flat-square" alt="Release 0.16.0"></a>
+  <a href="https://github.com/rockmeowstar/ksp_koe/releases/tag/0.16.1"><img src="https://img.shields.io/badge/release-0.16.1-8b5cf6?style=flat-square" alt="Release 0.16.1"></a>
   <img src="https://img.shields.io/badge/KSP-1.12.5-64748b?style=flat-square" alt="KSP 1.12.5">
-  <img src="https://img.shields.io/badge/Feature_flags-73-14b8a6?style=flat-square" alt="73 feature flags">
+  <img src="https://img.shields.io/badge/Feature_flags-75-14b8a6?style=flat-square" alt="75 feature flags">
   <img src="https://img.shields.io/badge/Local_checks-verified_2026--11--08-22c55e?style=flat-square" alt="Local validation snapshot: November 8, 2026">
   <a href="#ai-disclosure"><img src="https://img.shields.io/badge/AI_code-39%25_estimated-8b5cf6?style=flat-square" alt="Estimated AI-generated code: 39%"></a>
   <a href="#ai-disclosure"><img src="https://img.shields.io/badge/AI_tests-80%25_estimated-a78bfa?style=flat-square" alt="Estimated AI-generated tests: 80%"></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/rockmeowstar/ksp_koe/releases/tag/0.16.0">Download 0.16.0</a> ·
+  <a href="https://github.com/rockmeowstar/ksp_koe/releases/tag/0.16.1">Download 0.16.1</a> ·
   <a href="https://spacedock.info/mod/4787/KerbalOverengineering%20(KOE)">SpaceDock / CKAN</a> ·
   <a href="https://forum.kerbalspaceprogram.com/topic/232077-1125-kerbaloverengineering-koe-performance-optimization-for-ksp-and-its-mods/">Forum</a> ·
   <a href="https://github.com/rockmeowstar/ksp_koe/issues">Report an issue</a>
 </p>
 
-KOE optimizes loading, resource handling, scene updates and rendering in KSP and supported mods. It combines **73 individually configurable options across 38 modules**. Frame generation is optional; most features do not require an NVIDIA GPU.
+KOE optimizes loading, resource handling, scene updates and rendering in KSP and supported mods. It combines **75 individually configurable options across 39 modules**. Frame generation is optional; most features do not require an NVIDIA GPU.
+
+**0.16.1** adds two physics options, both enabled by default in newly generated configurations:
+
+- `Stock.RealtimePhysicsCatchup` adjusts the per-frame physics budget to keep simulation close to real time at low FPS, within available CPU capacity.
+- `Stock.PhysicsWarpPrecision` retains the 1× physics timestep during physical warp and aligns SAS, thermal integration, autopilot and FAR updates to physics ticks, reducing divergence from 1× at a higher CPU cost.
+
+The release also removes the global check against one specific `Assembly-CSharp` build; individual dependency checks remain. Existing configs keep their choices: enable both physics options manually or back up and remove `Options.cfg` to regenerate supported defaults, then restart KSP. The settings tabs now show a version notice when an installed mod is older than the version used during development.
 
 **0.16.0** adds a KOE toolbar button for editing settings in-game. Most changes require restarting KSP; the window indicates which options can apply immediately. The first banner shows one recent installed-build run; the comparison banners below retain historical measurements.
 
@@ -187,7 +194,10 @@ The badge above records the **latest local validation snapshot**, not a continuo
 | [Loading budgets](tests/LoadingResourcesTests.cs) | 345 checks passed | Hardware-dependent worker/memory policy |
 | [GPU drag reduction](tests/Test-DragReduction.ps1) | 48 GPU cases passed | Exact integer statistics; render/compute/OM UAV state and counters restored |
 | [DLC cache](tests/Test-DlcCache.ps1) | 13 checks passed | Invalidation, corruption, source replacement and path isolation |
-| [Options](tests/OptionStoreTests.cs) | 73 distinct keys checked | Config creation, preservation, dependencies and recovery |
+| [Options](tests/OptionStoreTests.cs) | 75 distinct keys checked | Config creation, preservation, dependencies and recovery |
+| [Physics catch-up](tests/Test-PhysicsCatchup.ps1) | 160 checks passed | Time-budget, clock and queued-warp logic; offline checks |
+| [Warp precision](tests/Test-PhysicsPrecision.ps1) | 3,213 checks passed | Patch bindings, component timesteps, FAR publication and EVA input; offline checks |
+| [Game assembly compatibility](tests/Test-SettingsCompatibility.ps1) | Passed against the rebuilt options DLL | Different game MVID accepted; missing game, Harmony and Deferred still rejected |
 | [FAR pool cleanup](tests/Test-FarExposurePool.ps1) | 2,005 checks passed | Reset behavior and installed FAR bindings |
 | [CameraTools callbacks](tests/Test-CameraToolsLifetime.ps1) | 501 checks passed | Managed toolbar callback ownership |
 | [Firefly cleanup](tests/Test-FireflyLifetime.ps1) | 400 checks passed | Managed lifetime logic; does not exercise Unity rendering |
