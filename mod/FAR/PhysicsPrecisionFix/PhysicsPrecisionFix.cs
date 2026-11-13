@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Reflection.Emit;
@@ -21,6 +22,7 @@ namespace KoeFarPhysicsPrecision
         static MethodInfo voxelUpdate, queue;
         static Action<object, Action> enqueue;
         static Action<object> pump;
+        static Func<object, bool> geometryReady;
 
         public static void Prepare()
         {
@@ -32,9 +34,21 @@ namespace KoeFarPhysicsPrecision
             voxelUpdate = AccessTools.DeclaredMethod(aero, "TryVoxelUpdate");
             queue = AccessTools.DeclaredMethod(pool, "QueueVoxelization", new[] { typeof(Action) });
             var execute = AccessTools.DeclaredMethod(pool, "ExecuteMainThreadTasks", Type.EmptyTypes);
+            var geometryType = AccessTools.TypeByName("FerramAerospaceResearch.FARPartGeometry.GeometryPartModule");
+            var modules = AccessTools.Field(aero, "_currentGeoModules");
+            var ready = geometryType == null ? null : AccessTools.Property(geometryType, "Ready");
             if (voxelUpdate == null || voxelUpdate.ReturnType != typeof(bool) || queue == null || execute == null
+                || modules == null || ready == null || ready.PropertyType != typeof(bool) || !typeof(IList).IsAssignableFrom(modules.FieldType)
                 || queue.IsStatic || execute.IsStatic || queue.ReturnType != typeof(void) || execute.ReturnType != typeof(void))
                 throw new NotSupportedException("FAR voxel publication contract changed");
+            geometryReady = owner =>
+            {
+                var list = modules.GetValue(owner) as IList;
+                if (list == null) return false;
+                foreach (var module in list)
+                    if (module == null || !(bool)ready.GetValue(module, null)) return false;
+                return true;
+            };
             enqueue = (Action<object, Action>)Forwarder(queue, typeof(Action<object, Action>));
             pump = (Action<object>)Forwarder(execute, typeof(Action<object>));
             bool releasesLock = false;
@@ -84,7 +98,11 @@ namespace KoeFarPhysicsPrecision
 
         public static void Submit(object pool, Action action, object owner)
         {
-            if (!PhysicsWarpPrecision.IsActive) { enqueue(pool, action); return; }
+            if (!PhysicsWarpPrecision.IsAccelerated || geometryReady == null || !geometryReady(owner))
+            {
+                enqueue(pool, action);
+                return;
+            }
             var job = new Job { Pool = pool };
             jobs.Add(owner, job);
             try

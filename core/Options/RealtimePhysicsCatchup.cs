@@ -19,6 +19,7 @@ namespace KerbalOverEngineering.Options
         float sampledScale;
         float sampledStep;
         double referenceFrameSeconds;
+        double stepCredit;
         int referenceCap, referenceSync;
 
         public void Awake()
@@ -92,6 +93,7 @@ namespace KerbalOverEngineering.Options
                 sampledStep = Time.fixedDeltaTime;
                 completedTime = 0;
                 debt = 0;
+                stepCredit = 1;
                 return;
             }
 
@@ -120,23 +122,25 @@ namespace KerbalOverEngineering.Options
                     referenceCap = cap; referenceSync = sync;
                     referenceFrameSeconds = referenceFrameSeconds > 0 ? System.Math.Min(referenceFrameSeconds, elapsed) : elapsed;
                 }
-                if (referenceFrameSeconds <= 0) referenceFrameSeconds = elapsed / scale;
-                double interval = System.Math.Max(referenceFrameSeconds, cap > 0 ? 1.0 / cap : 0);
-                // AI-generated comment: A slow accelerated physics batch must not enlarge the next batch.
-                // Calibrate against 1x work and the render cap; excess debt cannot become an unbounded loop.
-                target = System.Math.Min(elapsed, interval) * scale;
-                debt = 0;
+                if (scale > 1f)
+                {
+                    if (referenceFrameSeconds <= 0) referenceFrameSeconds = elapsed / scale;
+                    double interval = System.Math.Max(referenceFrameSeconds, cap > 0 ? 1.0 / cap : 0);
+                    // AI-generated comment: Bound accelerated batches by the observed 1x frame interval.
+                    target = System.Math.Min(elapsed, interval) * scale;
+                    debt = 0;
+                }
             }
             debt = System.Math.Max(0, debt + target - completedTime);
             completedTime = 0;
 
-            // Recover at most one frame's worth of debt per rendered frame.
-            // The remaining debt stays recorded instead of triggering a single long burst.
-            double recovery = !precision && debt >= step ? System.Math.Min(debt, target) : 0;
-            double steps = System.Math.Ceiling((target + recovery) / step);
-            float required = Mathf.Max(originalBudget, (float)(steps * step));
-            // Whole-step hysteresis avoids writing the Unity time budget every frame.
-            if (Mathf.Abs(required - writtenBudget) < step) return;
+            double fps = 1.0 / elapsed;
+            double desiredSteps = TargetPhysicsRate(fps) * elapsed * scale;
+            if (precision && scale > 1f) desiredSteps = System.Math.Min(desiredSteps, target / step);
+            // Above 25 FPS the cap must allow Unity to consume its normal 50 Hz clock.
+            double steps = FrameStepLimit(fps, desiredSteps, ref stepCredit);
+            float required = Mathf.Max(step, (float)(steps * step));
+            if (required == writtenBudget) return;
             writtenBudget = required;
             Time.maximumDeltaTime = required;
             writtenBudget = Time.maximumDeltaTime;
@@ -149,6 +153,40 @@ namespace KerbalOverEngineering.Options
             ownsBudget = false;
             completedTime = 0;
             debt = 0;
+            stepCredit = 0;
+        }
+
+        internal static double TargetPhysicsRate(double fps)
+        {
+            const double shape = 6.411558187565301;
+            if (fps >= 25) return 50;
+            if (fps >= 12.5) return 25 + 25 * (1 - System.Math.Exp(-shape * (fps - 12.5) / 12.5)) / (1 - System.Math.Exp(-shape));
+            if (fps >= 6.25)
+            {
+                double endSlope = shape / (12.5 * (1 - System.Math.Exp(-shape)));
+                double power = (endSlope - 1 / 12.5) * 6.25 / System.Math.Log(2);
+                return fps * System.Math.Exp(System.Math.Log(2) * System.Math.Pow((fps - 6.25) / 6.25, power));
+            }
+            return System.Math.Max(0, fps);
+        }
+
+        internal static double AllocateSteps(ref double credit, double desiredSteps)
+        {
+            credit += desiredSteps;
+            double steps = System.Math.Max(1, System.Math.Floor(credit));
+            credit = System.Math.Max(0, credit - steps);
+            return steps;
+        }
+
+        internal static double FrameStepLimit(double fps, double desiredSteps, ref double credit)
+        {
+            if (fps <= 6.25)
+            {
+                credit = 0;
+                return 1;
+            }
+            return fps >= 25 ? System.Math.Max(1, System.Math.Ceiling(desiredSteps))
+                : AllocateSteps(ref credit, desiredSteps);
         }
 
         public void OnDisable()

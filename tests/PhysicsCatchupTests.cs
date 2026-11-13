@@ -6,8 +6,10 @@ namespace UnityEngine
 {
     public class MonoBehaviour { }
     public static class Application { public static int targetFrameRate = 120; }
+    public struct Resolution { public int refreshRate; }
+    public static class Screen { public static Resolution currentResolution = new Resolution { refreshRate = 75 }; }
     public static class QualitySettings { public static int vSyncCount; }
-    public static class Time { public static float timeScale = 1, fixedDeltaTime = .02f, maximumDeltaTime = .04f; public static bool inFixedTimeStep; }
+    public static class Time { public static float timeScale = 1, fixedDeltaTime = .02f, maximumDeltaTime = .04f; public static bool inFixedTimeStep; public static int frameCount; }
     public static class Mathf
     {
         public static float Max(float a, float b) { return Math.Max(a, b); }
@@ -87,6 +89,34 @@ static class PhysicsCatchupTests
     }
     public static void Main()
     {
+        foreach (var sample in new[] { new[] { 6.25, 6.25 },
+            new[] { 12.5, 25.0 }, new[] { 25.0, 50.0 }, new[] { 60.0, 50.0 } })
+            Check(Math.Abs(RealtimePhysicsCatchup.TargetPhysicsRate(sample[0]) - sample[1]) < 1e-9, "physics rate curve");
+        double previous = 6.25;
+        for (int i = 1; i <= 750; i++)
+        {
+            double fps = 6.25 + i * .025;
+            double rate = RealtimePhysicsCatchup.TargetPhysicsRate(fps);
+            Check(rate >= previous - 1e-9 && rate >= fps - 1e-9 && rate <= 50 + 1e-9, "curve monotonicity");
+            previous = rate;
+        }
+        Check(Math.Abs(RealtimePhysicsCatchup.TargetPhysicsRate(15.625) - 45) < 1e-9,
+            "upper segment misses the 90 percent target");
+        foreach (double point in new[] { 6.25, 12.5 })
+        {
+            double h = .0001;
+            double left = (RealtimePhysicsCatchup.TargetPhysicsRate(point) - RealtimePhysicsCatchup.TargetPhysicsRate(point - h)) / h;
+            double right = (RealtimePhysicsCatchup.TargetPhysicsRate(point + h) - RealtimePhysicsCatchup.TargetPhysicsRate(point)) / h;
+            Check(Math.Abs(left - right) < .001, "curve slope discontinuity");
+        }
+        double credit = 1, allocated = 0;
+        for (int i = 0; i < 40; i++) allocated += RealtimePhysicsCatchup.AllocateSteps(ref credit, 1.75);
+        Check(allocated == 71, "fractional step distribution or initial lead");
+        credit = 1;
+        Check(RealtimePhysicsCatchup.FrameStepLimit(6.25, 1, ref credit) == 1 && credit == 0,
+            "low-fps limit retained the extra step");
+        Check(RealtimePhysicsCatchup.FrameStepLimit(3, 4, ref credit) == 1,
+            "low-fps limit allowed multiple steps");
         foreach (int fps in new[] { 5,10,60 })
         {
             UnityEngine.Time.maximumDeltaTime=.04f;

@@ -1,4 +1,4 @@
-param([string]$GamePath = $env:KSP_ROOT,[string]$ReleaseVersion = '0.16.1')
+param([string]$GamePath = $env:KSP_ROOT,[string]$ReleaseVersion = '0.16.2')
 $ErrorActionPreference = 'Stop'
 if ($ReleaseVersion -notmatch '^\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?$') {
     throw 'Invalid release version'

@@ -1,19 +1,96 @@
 using System;
 using System.Collections.Generic;
 using System.Reflection;
+using System.Reflection.Emit;
 using HarmonyLib;
 using UnityEngine;
 
 namespace PropellantRequestFix
 {
-    // AI-generated comment: No cache: list edits, persistent-ID edits and Unity destruction are observed
-    // on every lookup. Check Unity liveness only for candidates with the right ID.
+    // AI-generated comment: The index exists only inside the stock resource-list construction call;
+    // unexpected list edits or duplicate IDs fall back to the original linear search.
     public static class DeltaVLookup
     {
         const string Id = "local.kerbaloverengineering.delta-v-lookup";
         static Harmony harmony;
         static bool validate;
+        [ThreadStatic] static LookupScope currentScope;
+        static Func<List<DeltaVEngineResourcePartInfo>, int> readVersion;
+        sealed class LookupScope
+        {
+            public LookupScope Parent;
+            public List<DeltaVEngineResourcePartInfo> List;
+            public int Version, Count;
+            public readonly Dictionary<uint, DeltaVEngineResourcePartInfo> First = new Dictionary<uint, DeltaVEngineResourcePartInfo>();
+            public readonly HashSet<uint> Duplicates = new HashSet<uint>();
+            public bool Invalid;
+        }
         public static long Queries, Entries, AliveChecks, SkippedAliveChecks, Validations, Mismatches;
+        public static long IndexHits, IndexAppends, IndexFallbacks;
+
+        static Func<List<DeltaVEngineResourcePartInfo>, int> VersionReader()
+        {
+            var type = typeof(List<DeltaVEngineResourcePartInfo>);
+            var field = type.GetField("_version", BindingFlags.Instance | BindingFlags.NonPublic);
+            if (field == null || field.FieldType != typeof(int)) return null;
+            var method = new DynamicMethod("KOE_DeltaVListVersion", typeof(int), new[] { type }, typeof(DeltaVLookup), true);
+            var il = method.GetILGenerator();
+            il.Emit(OpCodes.Ldarg_0); il.Emit(OpCodes.Ldfld, field); il.Emit(OpCodes.Ret);
+            return (Func<List<DeltaVEngineResourcePartInfo>, int>)method.CreateDelegate(typeof(Func<List<DeltaVEngineResourcePartInfo>, int>));
+        }
+
+        static void EnterScope(out object __state)
+        {
+            var scope = new LookupScope { Parent = currentScope };
+            currentScope = scope;
+            __state = scope;
+        }
+
+        static Exception LeaveScope(object __state, Exception __exception)
+        {
+            var scope = __state as LookupScope;
+            if (scope != null) currentScope = scope.Parent;
+            return __exception;
+        }
+
+        static bool TryIndexed(List<DeltaVEngineResourcePartInfo> list, uint id, out DeltaVEngineResourcePartInfo result)
+        {
+            result = null;
+            var scope = currentScope;
+            if (scope == null || readVersion == null || list == null || scope.Invalid) return false;
+            int version = readVersion(list), count = list.Count;
+            if (scope.List == null) { scope.List = list; scope.Version = version; scope.Count = 0; }
+            else if (!ReferenceEquals(scope.List, list)) return false;
+            else if (count < scope.Count || version - scope.Version != count - scope.Count)
+            {
+                scope.Invalid = true;
+                if (validate) IndexFallbacks++;
+                return false;
+            }
+            for (int i = scope.Count; i < count; i++)
+            {
+                var entry = list[i];
+                if (entry == null || entry.resourcePart == null) { scope.Invalid = true; return false; }
+                var part = entry.resourcePart.part;
+                if (ReferenceEquals(part, null)) continue;
+                uint candidateId = part.persistentId;
+                if (scope.First.ContainsKey(candidateId)) scope.Duplicates.Add(candidateId);
+                else scope.First.Add(candidateId, entry);
+                if (validate) IndexAppends++;
+            }
+            scope.Count = count;
+            scope.Version = version;
+            if (scope.Duplicates.Contains(id)) { if (validate) IndexFallbacks++; return false; }
+            DeltaVEngineResourcePartInfo candidate;
+            if (scope.First.TryGetValue(id, out candidate))
+            {
+                var part = candidate.resourcePart.part;
+                if (ReferenceEquals(part, null) || part.persistentId != id) { scope.Invalid = true; return false; }
+                if (part != null) result = candidate;
+            }
+            if (validate) IndexHits++;
+            return true;
+        }
         public static void Apply()
         {
             if (!KerbalOverEngineering.Options.Settings.Enabled("Stock.DeltaVLookup"))
@@ -51,6 +128,19 @@ namespace PropellantRequestFix
                         + "Postfix") : null
                     );
                 }
+                var scopedMethod = AccessTools.DeclaredMethod(typeof(DeltaVStageInfo), "GetEngineResourceParts", new[] { typeof(List<DeltaVEngineInfo>) });
+                var existing = scopedMethod == null ? null : Harmony.GetPatchInfo(scopedMethod);
+                try { readVersion = VersionReader(); }
+                catch (Exception error)
+                {
+                    readVersion = null;
+                    Debug.Log("[PropellantRequestFix] Scoped delta-V index unavailable: " + error.Message);
+                }
+                if (scopedMethod != null && readVersion != null && (existing == null || existing.Owners.Count == 0))
+                {
+                    instance.Patch(scopedMethod, new HarmonyMethod(typeof(DeltaVLookup), "EnterScope"), finalizer: new HarmonyMethod(typeof(DeltaVLookup), "LeaveScope"));
+                    Debug.Log("[PropellantRequestFix] Scoped delta-V resource index enabled");
+                }
             }
             catch
             {
@@ -83,6 +173,7 @@ namespace PropellantRequestFix
                 + "; entries=" + Entries
                 + "; candidateAliveChecks=" + AliveChecks
                 + "; skippedAliveChecks=" + SkippedAliveChecks
+                + "; indexed=" + IndexHits + "; indexAppends=" + IndexAppends + "; indexFallbacks=" + IndexFallbacks
             );
         }
 
@@ -94,6 +185,8 @@ namespace PropellantRequestFix
             if (target == null)
                 return null;
             uint id = target.persistentId;
+            DeltaVEngineResourcePartInfo indexed;
+            if (TryIndexed(list, id, out indexed)) return indexed;
             for (int i = 0; i < list.Count; i++)
             {
                 DeltaVEngineResourcePartInfo entry = list[i];

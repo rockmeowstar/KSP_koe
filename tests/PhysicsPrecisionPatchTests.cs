@@ -150,6 +150,8 @@ static class PhysicsPrecisionPatchTests
         var pool = new Pool();
         AccessTools.Field(typeof(Patches), "enqueue").SetValue(null, new Action<object, Action>(pool.Queue));
         AccessTools.Field(typeof(Patches), "pump").SetValue(null, new Action<object>(pool.Pump));
+        AccessTools.Field(typeof(Patches), "geometryReady").SetValue(null, new Func<object, bool>(owner => true));
+        KerbalOverEngineering.Options.PhysicsWarpPrecision.IsAccelerated = true;
         int mainThread = Thread.CurrentThread.ManagedThreadId;
         for (int i = 0; i < 12; i++)
         {
@@ -170,6 +172,15 @@ static class PhysicsPrecisionPatchTests
         }
         Check(pool.WorkerThread != mainThread, "Voxel computation must retain its worker thread");
         Check(pool.Pumped == 12, "Main-thread tasks were dropped or duplicated");
+        AccessTools.Field(typeof(Patches), "geometryReady").SetValue(null, new Func<object, bool>(owner => false));
+        var waiting = new object();
+        using (var finished = new ManualResetEvent(false))
+        {
+            Patches.Submit(pool, delegate { finished.Set(); }, waiting);
+            Patches.AfterSubmission(waiting);
+            Check(finished.WaitOne(5000), "Unready geometry was not queued asynchronously");
+        }
+        AccessTools.Field(typeof(Patches), "geometryReady").SetValue(null, new Func<object, bool>(owner => true));
         var failed = new object();
         Patches.Submit(pool, delegate { throw new InvalidOperationException("worker failure"); }, failed);
         bool propagated = false;
