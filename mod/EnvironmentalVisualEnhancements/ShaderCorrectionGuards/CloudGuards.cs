@@ -15,6 +15,8 @@ namespace KerbalOverEngineering.CloudGuards
         static extern IntPtr GetProcAddress(IntPtr module, string name);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl, CharSet = CharSet.Unicode)]
         delegate int Initialize(string basePath, string topPath, int enabled);
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl, CharSet = CharSet.Unicode)]
+        delegate int VisualFixes(string wetPath, string horizonPath);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         delegate void Enable(int value);
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
@@ -37,10 +39,12 @@ namespace KerbalOverEngineering.CloudGuards
         public void Awake()
         {
             bool guardsEnabled = Settings.Enabled("EVE.ShaderCorrectionGuards");
+            bool wetEnabled = Settings.Enabled("EVE.WetSurfaceSlope");
+            bool horizonEnabled = Settings.Enabled("Scatterer.AtmosphereHorizonSeam");
             bool packingEnabled = Settings.Enabled("EVE.CloudShaderPacking") && SystemInfo.graphicsShaderLevel >= 50;
             bool mapsEnabled = Settings.Enabled("EVE.CloudMapPacking") && SystemInfo.graphicsShaderLevel >= 50;
             bool fusionEnabled = Settings.Enabled("EVE.CloudPassFusion") && packingEnabled;
-            if (!guardsEnabled && !packingEnabled && !mapsEnabled)
+            if (!guardsEnabled && !packingEnabled && !mapsEnabled && !wetEnabled && !horizonEnabled)
             {
                 Destroy(gameObject);
                 return;
@@ -52,6 +56,11 @@ namespace KerbalOverEngineering.CloudGuards
                 IntPtr module = LoadLibraryW(Path.Combine(folder, "KoeCloudGuard.dll"));
                 if (module == IntPtr.Zero)
                     throw new InvalidOperationException("Native loader: " + Marshal.GetLastWin32Error());
+                var visualFixes = (VisualFixes)Marshal.GetDelegateForFunctionPointer(GetProcAddress(module, "ConfigureVisualShaderFixes"), typeof(VisualFixes));
+                int visualResult = visualFixes(wetEnabled ? Path.Combine(folder,"WetSurfaceSlopeFix.koepatch") : null,
+                    horizonEnabled ? Path.Combine(folder,"AtmosphereHorizonFix.koepatch") : null);
+                if (visualResult != 0) Debug.LogWarning("[KOE VisualFixes] Original shaders retained; recipe configuration=" + visualResult);
+                else Debug.Log("[KOE VisualFixes] wetSlope=" + wetEnabled + "; horizonSeam=" + horizonEnabled + "; matching shader variants only");
                 var initialize = (Initialize)Marshal.GetDelegateForFunctionPointer(GetProcAddress(module, "InitializeCloudGuards"), typeof(Initialize));
                 enable = (Enable)Marshal.GetDelegateForFunctionPointer(GetProcAddress(module, "SetCloudGuardsEnabled"), typeof(Enable));
                 packing = (Enable)Marshal.GetDelegateForFunctionPointer(GetProcAddress(module, "SetCloudPackingEnabled"), typeof(Enable));

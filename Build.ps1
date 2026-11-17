@@ -1,4 +1,4 @@
-param([string]$GamePath = $env:KSP_ROOT,[string]$ReleaseVersion = '0.16.2')
+param([string]$GamePath = $env:KSP_ROOT,[string]$ReleaseVersion = '0.16.3')
 $ErrorActionPreference = 'Stop'
 if ($ReleaseVersion -notmatch '^\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?$') {
     throw 'Invalid release version'
@@ -226,6 +226,13 @@ $modules = @(
         Types = 'EveCurveBakeFix.Bootstrap'
     },
     @{
+        Path = 'mod/ParallaxContinued/TopologyReuseFix'
+        Name = 'KoeParallaxTopology'
+        Keys = 'ParallaxContinued.CertifiedMeshReuse'
+        Types = 'KerbalOverEngineering.ParallaxTopology.Bootstrap'
+        Native = 'ParallaxTopology'
+    },
+    @{
         Path = 'mod/ParallaxContinued/MenuSkyboxFix'
         Name = 'MenuSkyboxFix'
         Keys = 'ParallaxContinued.GpuSkyboxCopy,ParallaxContinued.DdsDirectUpload,ParallaxContinued.BiomeRgbPreparation,ParallaxContinued.LaunchTextureRetention'
@@ -240,7 +247,7 @@ $modules = @(
     @{
         Path = 'mod/EnvironmentalVisualEnhancements/ShaderCorrectionGuards'
         Name = 'KoeCloudGuards'
-        Keys = 'EVE.ShaderCorrectionGuards,EVE.CloudShaderPacking,EVE.CloudMapPacking,EVE.CloudPassFusion'
+        Keys = 'EVE.ShaderCorrectionGuards,EVE.CloudShaderPacking,EVE.CloudMapPacking,EVE.CloudPassFusion,EVE.WetSurfaceSlope,Scatterer.AtmosphereHorizonSeam'
         Types = 'KerbalOverEngineering.CloudGuards.Bootstrap'
         Native = 'Cloud'
     },
@@ -307,16 +314,33 @@ foreach ($source in $submissionBuild.sources.PSObject.Properties) {
 if ((Get-FileHash -LiteralPath "$submissionPath/native-assets/KoeShaderSubmission.dll").Hash.ToLowerInvariant() -ne $submissionBuild.binarySha256) {
     throw 'Rust submission native asset differs from its build manifest'
 }
+$topologyPath = "$projectRoot/mod/ParallaxContinued/TopologyReuseFix"
+$topologyBuild = Get-Content -LiteralPath "$topologyPath/native-assets/KoeParallaxTopology.build.json" -Raw | ConvertFrom-Json
+foreach ($source in $topologyBuild.sources.PSObject.Properties) {
+    if ((Get-FileHash -LiteralPath (Join-Path $topologyPath $source.Name)).Hash.ToLowerInvariant() -ne $source.Value) {
+        throw 'Parallax topology source changed; rebuild and validate its native asset'
+    }
+}
 $nativeFiles = @{
+    ParallaxTopology = ,@('KoeParallaxTopology.dll',$topologyBuild.binarySha256)
     Submission = ,@('KoeShaderSubmission.dll',$null)
     Shadows = @(@('KoeShadowBatches.dll','f83d2fd4e151871e38f492308ce92f7a1c50b8b2904d859c9dd4fe8f08483f43'),@('banked-vs.dxbc','074eb3efe15f163e611dda2a3000c7626f0db4eed1ec8f892d054d4688900ca9'))
     Coverage = ,@('KoeCoverageKernel.dll',$coverageBuild.binarySha256)
     Uniforms = ,@('KoeUniformKernel.dll',$null)
     Drag = ,@('KoeDragReduction.dll',$null)
-    Cloud = @(@('KoeCloudGuard.dll','9e90cc685b70fde4040cf5d7bfc298614593dd483f28484a99d4b018adb51880'),@('base-guarded.koepatch','544be245373e4a7bc0dfa0df0a8254d4fb170738c61dcfc361afacb30bed9bee'),@('top-guarded.koepatch','97db0080cb6c833a317e746b465618a96ffb30f88ad80f31d28b649e80365131'))
+    Cloud = @(@('KoeCloudGuard.dll',$null),@('base-guarded.koepatch','544be245373e4a7bc0dfa0df0a8254d4fb170738c61dcfc361afacb30bed9bee'),@('top-guarded.koepatch','97db0080cb6c833a317e746b465618a96ffb30f88ad80f31d28b649e80365131'),@('WetSurfaceSlopeFix.koepatch','bcdade297c95c77316fdd358a55113575a9c93f4bf1bd1740eee911a3d13ddf9','mod/EnvironmentalVisualEnhancements/WetSurfaceSlopeFix/native-assets/WetSurfaceSlopeFix.koepatch'),@('AtmosphereHorizonFix.koepatch','8b88708c7f4986df63ed8f958934fe34aca5672719b55a4009640cd5f69b49f3','mod/Scatterer/AtmosphereHorizonFix/native-assets/AtmosphereHorizonFix.koepatch'))
     Lights = @(@('KSP_x64_Data/Plugins/KoeInstancedLights.dll','b2ebf60be7eb0ea8add7047d3a441cdbad6d69a01c630ca21f96a155859fc3e5'),@('GameData/KerbalOverEngineeringExperiments/InstancedLights/light0-ps.shdr','52f0befe1d3fa291a4bebef94502ef14c162f4a3d86cd579a87da9664249bef7'),@('GameData/KerbalOverEngineeringExperiments/InstancedLights/light0-vs.shdr','18f304a7ebaf6499cde707116f7cda855078b930ae59b750ed6b5b8a0c46e496'),@('GameData/KerbalOverEngineeringExperiments/InstancedLights/light1-ps.shdr','bddc54bcdf16b256e3fdc3eabf6ea7675717597293d40bbfc2deb397878e81c8'),@('GameData/KerbalOverEngineeringExperiments/InstancedLights/light1-vs.shdr','18f304a7ebaf6499cde707116f7cda855078b930ae59b750ed6b5b8a0c46e496'))
     Frame = ,@('KSP_x64_Data/Plugins/KoeFrameGeneration.dll','732fbe935aaef00f1fa4debcec73ea37b45b74921402c7d546c3e520f28155af')
     FarFilter = ,@('KoeFarRendererFilter.dll',$farFilterBuild.binarySha256)
+}
+foreach ($modulePath in @('mod/EnvironmentalVisualEnhancements/ShaderCorrectionGuards')) {
+    $assetBuild = Get-Content -LiteralPath "$projectRoot/$modulePath/native-assets/KoeCloudGuard.build.json" -Raw | ConvertFrom-Json
+    foreach ($source in $assetBuild.sources.PSObject.Properties) {
+        if ((Get-FileHash -LiteralPath (Join-Path "$projectRoot/$modulePath" $source.Name)).Hash.ToLowerInvariant() -ne $source.Value) {
+            throw 'Visual shader integration source changed; rebuild its native asset'
+        }
+    }
+    $nativeFiles.Cloud[0][1] = $assetBuild.binarySha256
 }
 foreach ($module in $modules) {
     $moduleName = $module.Name
@@ -340,6 +364,7 @@ foreach ($module in $modules) {
         $nativeManifest = @()
         foreach ($nativeEntry in $nativeFiles[$module.Native]) {
             $nativeAsset = Join-Path $projectRoot ($module.Path+'/native-assets/'+(Split-Path $nativeEntry[0] -Leaf))
+            if ($nativeEntry.Count -gt 2) { $nativeAsset = Join-Path $projectRoot $nativeEntry[2] }
             $assetHash = (Get-FileHash -LiteralPath $nativeAsset -Algorithm SHA256).Hash.ToLowerInvariant()
             if ($nativeEntry[1] -and $assetHash -ne $nativeEntry[1]) {
                 throw "Accepted native identity changed: $nativeAsset"
@@ -352,7 +377,17 @@ foreach ($module in $modules) {
         [IO.File]::WriteAllLines($manifestPath,$nativeManifest,[Text.UTF8Encoding]::new($false))
         $embeddedResources += "/resource:$manifestPath,native.manifest"
     }
-    & $csharpCompiler @compilerReferences /define:KOE_COVERAGE_PRODUCTION "/out:$payloadAssembly" @embeddedResources @sourceFiles
+    $moduleCompiler = $csharpCompiler
+    $moduleReferences = @()
+    if ($moduleName -eq 'KoeParallaxTopology') {
+        $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products '*' -property installationPath
+        $moduleCompiler = Join-Path $vs 'MSBuild/Current/Bin/Roslyn/csc.exe'
+        $moduleReferences += "/reference:$GamePath/GameData/ParallaxContinued/Plugins/ParallaxContinued.dll"
+        foreach ($name in @('Unity.Mathematics','Unity.Jobs','Unity.Collections')) {
+            $moduleReferences += "/reference:$GamePath/GameData/000_KSPBurst/Plugins/$name.dll"
+        }
+    }
+    & $moduleCompiler @compilerReferences @moduleReferences /define:KOE_COVERAGE_PRODUCTION "/out:$payloadAssembly" @embeddedResources @sourceFiles
     if ($LASTEXITCODE -ne 0) {
         throw "Payload build failed: $moduleName"
     }
@@ -368,6 +403,7 @@ foreach ($module in $modules) {
     }
 }
 Copy-Item -LiteralPath "$projectRoot\LICENSE","$projectRoot\LICENSES.md" -Destination $packageDirectory
+Copy-Item -LiteralPath "$projectRoot\KerbalOverEngineering.version" -Destination $packageDirectory
 New-Item -ItemType Directory -Force "$packageDirectory\licenses" | Out-Null
 Copy-Item -Path "$projectRoot\licenses\*" -Destination "$packageDirectory\licenses" -Force
 Copy-Item -LiteralPath "$projectRoot\third_party\reshade-api\LICENSE" -Destination "$packageDirectory\licenses\ReShade-API.txt" -Force
@@ -377,11 +413,19 @@ Write-KoeZip -SourceDirectory $projectRoot -Destination "$projectRoot\dist\Kerba
     'core'
     'stock'
     'mod'
-    'third_party'
+    'third_party/Deferred'
+    'third_party/DxbcHash'
+    'third_party/minhook'
+    'third_party/nvidia-optical-flow-headers'
+    'third_party/reshade-api'
     'tests'
     'licenses'
     'LICENSE'
     'LICENSES.md'
+    'README.md'
+    'RELEASE_NOTES.md'
+    'KerbalOverEngineering.version'
+    'docs'
     'Build.ps1'
     'Build-PointLights.ps1'
     'artifacts/native-texture-production/NativeTextureEncoder.bin'

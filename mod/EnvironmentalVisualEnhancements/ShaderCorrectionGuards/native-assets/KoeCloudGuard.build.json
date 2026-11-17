@@ -1,0 +1,8 @@
+{
+    "binarySha256":  "3c81b98c38286145b0a7ff3ffb0dfc9a2ba6103f7c7cc424924880e151bb15a8",
+    "sources":  {
+                    "NativeCloudGuard.cpp":  "31ad7ab3c3da5fa35a4f07e71043633f4350a9c6f8ae5c78a1132c8378c22130",
+                    "../../../core/ShaderPatch/VisualShaderFix.h":  "c15465d5398ecba82e5e92bb031f5408d2aa92899183f4a0f7709056d0cf2006",
+                    "../../../core/ShaderPatch/ShaderPatch.h":  "20fb3d6883a920a44b3ad07e6c28d9873456c6b7ef37b4778bed88edf5dc0e38"
+                }
+}

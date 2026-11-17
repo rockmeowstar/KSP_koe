@@ -1,0 +1,11 @@
+{
+  "shader": "EVE/GBufferWetEffect",
+  "sourceSha256": "548026640ee8ccff59c525767748a79bd46da82373b443c951352f8d8d816571",
+  "targetSha256": "84a85c517d81b8c4065e63ad5b21734e0af7329ca5f163bb005cc644575877f8",
+  "recipeSha256": "bcdade297c95c77316fdd358a55113575a9c93f4bf1bd1740eee911a3d13ddf9",
+  "sourceBytes": 7852,
+  "targetBytes": 8148,
+  "recipeBytes": 476,
+  "format": "KOEPATCH version 1",
+  "releaseIntegration": "0.16.3 hash-checked runtime replacement"
+}

@@ -11,22 +11,24 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/rockmeowstar/ksp_koe/releases/tag/0.16.2"><img src="https://img.shields.io/badge/release-0.16.2-8b5cf6?style=flat-square" alt="Release 0.16.2"></a>
+  <a href="https://github.com/rockmeowstar/ksp_koe/releases/tag/0.16.3"><img src="https://img.shields.io/badge/release-0.16.3-8b5cf6?style=flat-square" alt="Release 0.16.3"></a>
   <img src="https://img.shields.io/badge/KSP-1.12.5-64748b?style=flat-square" alt="KSP 1.12.5">
-  <img src="https://img.shields.io/badge/Feature_flags-75-14b8a6?style=flat-square" alt="75 feature flags">
+  <img src="https://img.shields.io/badge/Feature_flags-78-14b8a6?style=flat-square" alt="78 feature flags">
   <img src="https://img.shields.io/badge/Local_checks-verified_2026--11--08-22c55e?style=flat-square" alt="Local validation snapshot: November 8, 2026">
   <a href="#ai-disclosure"><img src="https://img.shields.io/badge/AI_code-39%25_estimated-8b5cf6?style=flat-square" alt="Estimated AI-generated code: 39%"></a>
   <a href="#ai-disclosure"><img src="https://img.shields.io/badge/AI_tests-80%25_estimated-a78bfa?style=flat-square" alt="Estimated AI-generated tests: 80%"></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/rockmeowstar/ksp_koe/releases/tag/0.16.2">Download 0.16.2</a> ·
+  <a href="https://github.com/rockmeowstar/ksp_koe/releases/tag/0.16.3">Download 0.16.3</a> ·
   <a href="https://spacedock.info/mod/4787/KerbalOverengineering%20(KOE)">SpaceDock / CKAN</a> ·
   <a href="https://forum.kerbalspaceprogram.com/topic/232077-1125-kerbaloverengineering-koe-performance-optimization-for-ksp-and-its-mods/">Forum</a> ·
   <a href="https://github.com/rockmeowstar/ksp_koe/issues">Report an issue</a>
 </p>
 
-KOE optimizes loading, resource handling, scene updates and rendering in KSP and supported mods. It combines **75 individually configurable options across 39 modules**. Frame generation is optional; most features do not require an NVIDIA GPU.
+KOE optimizes loading, resource handling, scene updates and rendering in KSP and supported mods. It combines **78 individually configurable options across 40 modules**. Frame generation is optional and disabled by default; most features do not require an NVIDIA GPU.
+
+**0.16.3** adds certified Parallax mesh reuse, corrects false wet reflections on distant trees and removes dark atmospheric horizon dashes. One matched render-route comparison measured **28.26 → 28.97 FPS (+2.5%)**; the horizon correction added **0.0092 ms** to the captured GPU pass. See [release notes](RELEASE_NOTES.md) and [validation details](docs/release-0.16.3-validation.md). Existing configs keep their choices: enable the new options under Parallax, EVE and Scatterer in-game, then restart KSP.
 
 **0.16.2** updates adaptive physics scheduling, improves delta-v resource lookup and fixes a FAR voxel synchronization stall. The chart below records one flight at each physical warp rate and three heavy-craft runs; actual physics speed depends on the available CPU time.
 

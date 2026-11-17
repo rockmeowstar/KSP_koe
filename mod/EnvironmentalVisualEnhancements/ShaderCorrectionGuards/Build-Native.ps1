@@ -47,3 +47,11 @@ try {
 finally {
     Pop-Location
 }
+$assets=Join-Path $PSScriptRoot 'native-assets'
+Copy-Item -LiteralPath "$OutputDirectory/KoeCloudGuard.dll" -Destination "$assets/KoeCloudGuard.dll" -Force
+$sources=@{}
+foreach($name in @('NativeCloudGuard.cpp','../../../core/ShaderPatch/VisualShaderFix.h','../../../core/ShaderPatch/ShaderPatch.h')) {
+    $sources[$name]=(Get-FileHash -LiteralPath (Join-Path $PSScriptRoot $name)).Hash.ToLowerInvariant()
+}
+$manifest=@{binarySha256=(Get-FileHash -LiteralPath "$assets/KoeCloudGuard.dll").Hash.ToLowerInvariant();sources=$sources}
+[IO.File]::WriteAllText("$assets/KoeCloudGuard.build.json",($manifest|ConvertTo-Json),[Text.UTF8Encoding]::new($false))

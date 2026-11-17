@@ -18,6 +18,7 @@
 #include <algorithm>
 #include "MinHook.h"
 #include "ShaderPatch.h"
+#include "VisualShaderFix.h"
 #include "DxilHash.h"
 
 extern "C" void *koe_compile_cloud_half(const unsigned char *, size_t, const unsigned char **, size_t *, size_t *);
@@ -233,6 +234,14 @@ static HRESULT CreatePacked(ID3D11Device *device, const void *bytes, SIZE_T leng
 static HRESULT STDMETHODCALLTYPE Create(ID3D11Device *device, const void *bytes, SIZE_T length,
                                         ID3D11ClassLinkage *linkage, ID3D11PixelShader **output)
 {
+    const void *corrected{};size_t correctedLength{};unsigned visualIndex{};
+    try {
+        if(KoeVisualFix::Resolve(bytes,length,corrected,correctedLength,visualIndex,Hash)) {
+            HRESULT result=originalCreate(device,corrected,correctedLength,linkage,output);
+            KoeVisualFix::Created(visualIndex,SUCCEEDED(result)&&output&&*output);
+            if(SUCCEEDED(result))return result;
+        }
+    }catch(...){/* AI-generated comment: Invalid recipes keep the installed shader. */}
     HRESULT result = CreatePacked(device, bytes, length, linkage, output);
     creates++;
     if (FAILED(result) || !output || !*output || !bytes)
@@ -367,6 +376,16 @@ extern "C" __declspec(dllexport) void ReadCloudGuards(long long *out, int count)
                           failures.load(),
                           unknownSized.load()};
     std::memcpy(out, values, sizeof(values));
+}
+extern "C" __declspec(dllexport) int ConfigureVisualShaderFixes(const wchar_t *wetPath,const wchar_t *horizonPath)
+{
+    return KoeVisualFix::Configure(wetPath,horizonPath);
+}
+extern "C" __declspec(dllexport) void ReadVisualShaderFixCounters(unsigned long long *out,unsigned count)
+{
+    if(!out||count<4)return;
+    out[0]=KoeVisualFix::replacements[0].load();out[1]=KoeVisualFix::replacements[1].load();
+    out[2]=KoeVisualFix::rejected[0].load();out[3]=KoeVisualFix::rejected[1].load();
 }
 extern "C" __declspec(dllexport) int InitializeCloudGuards(const wchar_t *basePath, const wchar_t *topPath, int enable)
 {

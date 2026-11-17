@@ -40,6 +40,8 @@ Scatterer ScreenCopyFix - MIT (external Scatterer runtime not redistributed)
 ShadowDrawBatching - MIT (MinHook/HDE: BSD-2-Clause)
 Firefly IdleFix - MIT
 Parallax Continued MenuSkyboxFix - MIT
+Parallax Continued TopologyReuseFix integration and Rust kernel - MIT (external Parallax runtime not redistributed; Rust standard library MIT option selected)
+WetSurfaceSlopeFix and AtmosphereHorizonFix authored shader edits and integration - MIT (external EVE/Scatterer shader bundles not redistributed)
 MinHook and HDE - BSD-2-Clause
 DXBC container hashing (Microsoft DirectX Shader Compiler) - University of Illinois/NCSA Open Source License
 NVIDIA Optical Flow interface headers - MIT

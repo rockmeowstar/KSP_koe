@@ -1,0 +1,7 @@
+{
+    "binarySha256":  "1ac14563843ef371271217a7485b873b92609fb7dcfa8458d1c3bb45b9274563",
+    "sources":  {
+                    "Topology.rs":  "dc3d92524c944f34767d386de15a82bfc4651323a143c0ae1ebefb4bb47ddfee",
+                    "Certificate.rs":  "e8e24a7867d4ef5bce6f8e069dd15bb9f446e3e4473d69ddd4045b01b9073c6a"
+                }
+}

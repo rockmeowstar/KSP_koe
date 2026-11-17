@@ -19,11 +19,12 @@ static class OptionStoreTests
         try
         {
             Check(
-                Catalog.Features.Length == 75
-                && Catalog.Features.Select(f => f.Key).Distinct().Count() == 75,
-                "The option catalog must contain 75 distinct feature keys."
+                Catalog.Features.Length == 78
+                && Catalog.Features.Select(f => f.Key).Distinct().Count() == 78,
+                "The option catalog must contain 78 distinct feature keys."
             );
             var first = new OptionStore(path, f => f.Group == "EVE" ? "EVE missing" : null);
+            Check(first.Enabled("ParallaxContinued.CertifiedMeshReuse"), "Accepted Parallax mesh reuse defaults on when supported");
             Check(first.Enabled("Rendering.ShaderConstantUpdates"), "Supported shader constants enabled on first config creation");
             Check(first.Enabled("Stock.FlightUiLifecycle"), "UI lifecycle repair defaults on");
             Check(first.Enabled("Stock.PlanetLaunchReadiness"), "Launch readiness defaults on");

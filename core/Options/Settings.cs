@@ -173,6 +173,14 @@ namespace KerbalOverEngineering.Options
                         if (problem != null)
                             return problem;
                         return feature.Requirement == "EveD3D11" ? Direct3D() : null;
+                    case "ParallaxTopology":
+                        if (Environment.OSVersion.Platform != PlatformID.Win32NT || IntPtr.Size != 8)
+                            return "Windows x64 native kernel required";
+                        return ParallaxTopologyContract.Check(assemblies.FirstOrDefault(a => a.GetName().Name == "ParallaxContinued"));
+                    case "EveVisual":
+                        return Direct3D() ?? AssemblyProblem("Atmosphere");
+                    case "ScattererD3D11":
+                        return Direct3D() ?? AssemblyProblem("scatterer");
                     case "Parallax":
                         var parallax = assemblies.FirstOrDefault(a => a.GetName().Name == "ParallaxContinued");
                         problem = ManagedContract.ParallaxProblem(parallax, feature.Name);
