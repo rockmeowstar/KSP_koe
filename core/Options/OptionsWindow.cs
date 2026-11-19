@@ -195,10 +195,10 @@ namespace KerbalOverEngineering.Options
                 if (current != previous) { values[feature.Key] = current; dirty = true; }
                 if (feature.Parent != null) GUILayout.Label("Requires " + feature.Parent);
                 if (feature.Key == "Stock.RealtimePhysicsCatchup")
-                    GUILayout.Label("Adapts the catch-up budget to keep physics close to real time while preserving the stock physics step. Real-time speed depends on available CPU time.",
+                    GUILayout.Label("Runs extra physics steps to keep simulation closer to real time. This can lower FPS, especially on large craft or when the CPU is already busy.",
                         new GUIStyle(GUI.skin.label) { wordWrap = true });
                 if (feature.Key == "Stock.PhysicsWarpPrecision")
-                    GUILayout.Label("Experimental. Uses the 1x physics step and clock, with tick-based SAS, thermal integration, autopilot and FAR voxel publication. Requires restart. Higher CPU cost; geometry changes can pause physics.",
+                    GUILayout.Label("Uses the 1x physics step during physical warp for better accuracy. Extra CPU work can lower FPS during warp.",
                         new GUIStyle(GUI.skin.label) { wordWrap = true });
             }
             GUILayout.EndScrollView();

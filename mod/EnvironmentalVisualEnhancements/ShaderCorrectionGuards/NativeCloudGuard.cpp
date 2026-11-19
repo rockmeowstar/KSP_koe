@@ -1,6 +1,3 @@
-// AI-generated comment: Guard recipes require two exact SHA256 identities;
-// optional half unpacking is recognized and proved from each program's instructions.
-// Guard objects remain alive so disabling guards selects the original without recompilation.
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <d3d11.h>
@@ -94,24 +91,7 @@ static std::atomic<long long> packingBinds[4]{};
 static std::map<std::array<unsigned char, 32>, std::shared_ptr<const PackedProgram>> packedPrograms;
 static std::mutex packingMutex;
 static std::mutex publishMutex;
-struct Variant
-{
-    SIZE_T sourceSize;
-    const char *sourceHash;
-    const char *candidateHash;
-    std::vector<unsigned char> recipe;
-    std::vector<unsigned char> bytes;
-};
-static Variant variants[] = {{114104,
-                              "da29201451a10e0edd62ab037e5b4211368abe5bbd8e4f84366a6325ff028ec1",
-                              "04e00f9599ad879681934517e2ab19834c2d56688e14937294613daa6b9258ef",
-                              {},
-                              {}},
-                             {119680,
-                              "3475c9b577a06288c501fbdb489bb7221e1ce9417627261fab081b3288954e30",
-                              "237f4974991511b6f89d4d6bc278f1fa8be474572a04efb912d5bb0490c5212a",
-                              {},
-                              {}}};
+static std::array<std::vector<KoeVisualFix::Program>, 2> legacyCorrection;
 struct Entry
 {
     ID3D11PixelShader *source{};
@@ -120,25 +100,8 @@ struct Entry
 };
 static std::array<Entry, 64> entries{};
 static std::atomic<unsigned> entryCount{};
-static std::atomic<long long> creates{}, matches[2]{}, built[2]{}, binds[2]{}, failures{}, unknownSized{};
-static bool Hash(const void *bytes, SIZE_T length, const char *expected)
-{
-    if (length > 0xffffffffULL)
-        return false;
-    unsigned char digest[32];
-    char hex[65];
-    if (BCryptHash(algorithm, nullptr, 0, const_cast<PUCHAR>(static_cast<const unsigned char *>(bytes)),
-                   static_cast<ULONG>(length), digest, 32) < 0)
-        return false;
-    constexpr char digits[] = "0123456789abcdef";
-    for (int i = 0; i < 32; i++)
-    {
-        hex[i * 2] = digits[digest[i] >> 4];
-        hex[i * 2 + 1] = digits[digest[i] & 15];
-    }
-    hex[64] = 0;
-    return std::strcmp(hex, expected) == 0;
-}
+static std::atomic<long long> creates{}, matches[2]{}, built[2]{}, binds[2]{}, failures{};
+static std::atomic<unsigned long long> unmatchedCorrection[2]{};
 static HRESULT CreatePacked(ID3D11Device *device, const void *bytes, SIZE_T length,
                             ID3D11ClassLinkage *linkage, ID3D11PixelShader **output)
 {
@@ -234,10 +197,11 @@ static HRESULT CreatePacked(ID3D11Device *device, const void *bytes, SIZE_T leng
 static HRESULT STDMETHODCALLTYPE Create(ID3D11Device *device, const void *bytes, SIZE_T length,
                                         ID3D11ClassLinkage *linkage, ID3D11PixelShader **output)
 {
-    const void *corrected{};size_t correctedLength{};unsigned visualIndex{};
+    std::vector<unsigned char> corrected;
+    unsigned visualIndex{};
     try {
-        if(KoeVisualFix::Resolve(bytes,length,corrected,correctedLength,visualIndex,Hash)) {
-            HRESULT result=originalCreate(device,corrected,correctedLength,linkage,output);
+        if(KoeVisualFix::Resolve(bytes,length,corrected,visualIndex)) {
+            HRESULT result=originalCreate(device,corrected.data(),corrected.size(),linkage,output);
             KoeVisualFix::Created(visualIndex,SUCCEEDED(result)&&output&&*output);
             if(SUCCEEDED(result))return result;
         }
@@ -246,52 +210,37 @@ static HRESULT STDMETHODCALLTYPE Create(ID3D11Device *device, const void *bytes,
     creates++;
     if (FAILED(result) || !output || !*output || !bytes)
         return result;
-    for (int i = 0; i < 2; i++)
+    try
     {
-        auto &v = variants[i];
-        if (length != v.sourceSize)
-            continue;
-        if (!Hash(bytes, length, v.sourceHash))
-        {
-            unknownSized++;
-            continue;
-        }
+        unsigned i{};
+        if (!KoeVisualFix::ApplyBank(legacyCorrection, bytes, length, corrected, i, unmatchedCorrection))
+            return result;
         matches[i]++;
-        try
-        {
-            std::lock_guard<std::mutex> guard(publishMutex);
-            unsigned count = entryCount.load();
-            for (unsigned j = 0; j < count; j++)
-                if (entries[j].source == *output)
-                    return result;
-            if (count >= entries.size())
-            {
-                failures++;
+        std::lock_guard<std::mutex> guard(publishMutex);
+        unsigned count = entryCount.load();
+        for (unsigned j = 0; j < count; j++)
+            if (entries[j].source == *output)
                 return result;
-            }
-            if (v.bytes.empty() && (!KoeShaderPatch::Apply(v.recipe, bytes, length, v.bytes) ||
-                                    !Hash(v.bytes.data(), v.bytes.size(), v.candidateHash)))
-            {
-                failures++;
-                return result;
-            }
-            ID3D11PixelShader *candidate{};
-            HRESULT hr = CreatePacked(device, v.bytes.data(), v.bytes.size(), linkage, &candidate);
-            if (FAILED(hr) || !candidate)
-            {
-                failures++;
-                return result;
-            }
-            (*output)->AddRef();
-            entries[count] = {*output, candidate, i};
-            entryCount.store(count + 1, std::memory_order_release);
-            built[i]++;
-        }
-        catch (...)
+        if (count >= entries.size())
         {
             failures++;
+            return result;
         }
-        break;
+        ID3D11PixelShader *candidate{};
+        HRESULT hr = CreatePacked(device, corrected.data(), corrected.size(), linkage, &candidate);
+        if (FAILED(hr) || !candidate)
+        {
+            failures++;
+            return result;
+        }
+        (*output)->AddRef();
+        entries[count] = {*output, candidate, static_cast<int>(i)};
+        entryCount.store(count + 1, std::memory_order_release);
+        built[i]++;
+    }
+    catch (...)
+    {
+        failures++;
     }
     return result;
 }
@@ -374,7 +323,7 @@ extern "C" __declspec(dllexport) void ReadCloudGuards(long long *out, int count)
                           binds[0].load(),
                           binds[1].load(),
                           failures.load(),
-                          unknownSized.load()};
+                          static_cast<long long>(unmatchedCorrection[0].load() + unmatchedCorrection[1].load())};
     std::memcpy(out, values, sizeof(values));
 }
 extern "C" __declspec(dllexport) int ConfigureVisualShaderFixes(const wchar_t *wetPath,const wchar_t *horizonPath)
@@ -398,22 +347,10 @@ extern "C" __declspec(dllexport) int InitializeCloudGuards(const wchar_t *basePa
     const wchar_t *paths[] = {basePath, topPath};
     try
     {
-        for (int i = 0; i < 2; i++)
-        {
-            std::ifstream stream(std::filesystem::path(paths[i]), std::ios::binary | std::ios::ate);
-            if (!stream)
-                return -3;
-            auto length = stream.tellg();
-            if (length < 32 || length > 1024 * 1024)
-                return -4;
-            auto &bytes = variants[i].recipe;
-            bytes.resize(static_cast<size_t>(length));
-            stream.seekg(0);
-            if (!stream.read(reinterpret_cast<char *>(bytes.data()), static_cast<std::streamsize>(bytes.size())))
-                return -5;
-            if (bytes.size() < 88 || std::memcmp(bytes.data(), "KOEPATCH", 8))
-                return -6;
-        }
+        decltype(legacyCorrection) parsed;
+        for (unsigned i = 0; i < parsed.size(); i++)
+            if (!paths[i] || !*paths[i] || !KoeVisualFix::Read(paths[i], parsed[i])) return -3;
+        legacyCorrection = std::move(parsed);
     }
     catch (...)
     {

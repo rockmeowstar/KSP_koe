@@ -1,11 +1,6 @@
 {
   "shader": "Scatterer/DepthBufferScattering",
-  "sourceSha256": "e0cc0c4f040b5c4785b73132256a925baae5d88bff3d7a5dec5630ffb85cd772",
-  "targetSha256": "1267ffe63a65cdaaf3ec9a67838a206d9023005dacded77707d84f94d9289816",
-  "recipeSha256": "8b88708c7f4986df63ed8f958934fe34aca5672719b55a4009640cd5f69b49f3",
-  "sourceBytes": 39416,
-  "targetBytes": 58544,
-  "recipeBytes": 1663,
-  "format": "KOEPATCH version 1",
-  "releaseIntegration": "0.16.3 hash-checked runtime replacement"
+  "recipeSha256": "dbf71fa8dec28c3e4796f3a159c6afcad8533b8781365724d238bfff8c4a5103",
+  "format": "KOEVIS02",
+  "validatedPrograms": 2
 }

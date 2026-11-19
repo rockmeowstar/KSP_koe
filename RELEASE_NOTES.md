@@ -1,3 +1,9 @@
+## 0.16.4
+
+- Extended the wet foliage and dashed horizon fixes to the newer EVE and Scatterer DX11 shaders.
+- Kept the cloud density optimization for supported older shaders. Newer Scatterer shaders use their built-in density check.
+- Added a visible warning that real-time physics and warp precision can lower FPS.
+
 ## 0.16.3
 
 - Parallax: reuse terrain meshes when LOD and visibility decisions are unchanged. Enabled by default for supported installations.

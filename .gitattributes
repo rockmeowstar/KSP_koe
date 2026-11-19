@@ -10,5 +10,11 @@ stock/RustShaderSubmission/Parallel.rs -text
 stock/RustShaderSubmission/PropertyIndex.rs -text
 stock/RustShaderSubmission/Build-Rust.ps1 -text
 stock/RustShaderSubmission/Build-Native.ps1 -text
+stock/RustShaderSubmission/ValuePlan.rs -text
+mod/ParallaxContinued/TopologyReuseFix/Topology.rs -text
+mod/ParallaxContinued/TopologyReuseFix/Certificate.rs -text
+mod/EnvironmentalVisualEnhancements/ShaderCorrectionGuards/NativeCloudGuard.cpp -text
+core/ShaderPatch/VisualShaderFix.h -text
+core/ShaderPatch/ShaderPatch.h -text
 mod/FerramAerospaceResearch/EventPathFix/RendererFilter.rs -text
 mod/FerramAerospaceResearch/EventPathFix/Build-Filter.ps1 -text
